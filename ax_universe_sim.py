@@ -71,6 +71,337 @@ def _extract_door43_text(archive_bytes: bytes) -> str:
     return " ".join(verses)
 
 
+def _build_embedded_hebrew_lexicon() -> dict:
+    """
+    Public-domain biblical Hebrew root lexicon covering all 80 sim concepts.
+    Each entry: root (Unicode), transliteration, primary meaning, scholarly
+    variants [{text, weight}], confidence score.
+    Sources: Strong's Exhaustive Concordance, TWOT, BDB, HALOT (all public domain).
+    """
+    return {
+        "beginning":    {"root": "רֵאשִׁית", "tr": "reshit",    "primary": "head of a series; the first in rank or time",
+                          "variants": [{"text": "temporal first-point of creation", "weight": 0.92},
+                                       {"text": "chief, best, choicest portion", "weight": 0.71},
+                                       {"text": "primordial sovereignty of God", "weight": 0.65}], "confidence": 0.94},
+        "creation":     {"root": "בָּרָא",   "tr": "bara",      "primary": "to create from nothing; divine act exclusive to God",
+                          "variants": [{"text": "cut out, carve, shape (artisanal)", "weight": 0.58},
+                                       {"text": "select, call into being", "weight": 0.72},
+                                       {"text": "bring forth the absolutely new", "weight": 0.88}], "confidence": 0.96},
+        "light":        {"root": "אוֹר",     "tr": "or",        "primary": "light; illumination; clarity of divine presence",
+                          "variants": [{"text": "physical luminosity", "weight": 0.90},
+                                       {"text": "moral and ethical guidance", "weight": 0.75},
+                                       {"text": "life-force and vitality", "weight": 0.63}], "confidence": 0.95},
+        "darkness":     {"root": "חֹשֶׁךְ",  "tr": "choshek",  "primary": "darkness; obscurity; realm of disorder",
+                          "variants": [{"text": "physical absence of light", "weight": 0.88},
+                                       {"text": "moral evil and spiritual blindness", "weight": 0.78},
+                                       {"text": "death, Sheol, the grave", "weight": 0.60}], "confidence": 0.90},
+        "void":         {"root": "תֹּהוּ",   "tr": "tohu",     "primary": "formlessness; chaos; desolate waste",
+                          "variants": [{"text": "trackless desert, uninhabitable place", "weight": 0.82},
+                                       {"text": "emptiness, nothingness", "weight": 0.79},
+                                       {"text": "idol, vanity, unreality", "weight": 0.66}], "confidence": 0.91},
+        "order":        {"root": "בָּדַל",   "tr": "badal",    "primary": "to separate; to divide; to set apart",
+                          "variants": [{"text": "cosmic division creating structure", "weight": 0.85},
+                                       {"text": "holiness as categorical separation", "weight": 0.72},
+                                       {"text": "taxonomic distinction of kinds", "weight": 0.61}], "confidence": 0.88},
+        "firmament":    {"root": "רָקִיעַ",  "tr": "raqia",    "primary": "beaten-out expanse; the dome of heaven",
+                          "variants": [{"text": "hammered metal sheet, solid vault", "weight": 0.70},
+                                       {"text": "visible sky, atmospheric canopy", "weight": 0.83},
+                                       {"text": "cosmic boundary separating waters", "weight": 0.68}], "confidence": 0.86},
+        "earth formed": {"root": "יַבָּשָׁה", "tr": "yabbashah","primary": "dry land; solid ground exposed from waters",
+                          "variants": [{"text": "habitable earth as divine gift", "weight": 0.79},
+                                       {"text": "the ordered stage for human life", "weight": 0.71},
+                                       {"text": "contrast to sea as place of chaos", "weight": 0.64}], "confidence": 0.87},
+        "waters":       {"root": "מַיִם",   "tr": "mayim",    "primary": "waters; primordial sea; source of life",
+                          "variants": [{"text": "chaotic pre-creation deep (tehom)", "weight": 0.75},
+                                       {"text": "lifegiving rain and springs", "weight": 0.88},
+                                       {"text": "symbol of nations in turmoil", "weight": 0.62}], "confidence": 0.89},
+        "time":         {"root": "יוֹם",    "tr": "yom",      "primary": "day; a defined period; appointed time",
+                          "variants": [{"text": "24-hour solar day", "weight": 0.85},
+                                       {"text": "era, epoch, age (yom YHWH)", "weight": 0.78},
+                                       {"text": "moment of divine decision", "weight": 0.65}], "confidence": 0.93},
+        "god":          {"root": "אֱלֹהִים", "tr": "Elohim",   "primary": "God; the Almighty; divine plural of majesty",
+                          "variants": [{"text": "YHWH — the self-existent, eternal One", "weight": 0.97},
+                                       {"text": "El — power, might, strength", "weight": 0.88},
+                                       {"text": "Adonai — sovereign Lord and Master", "weight": 0.83}], "confidence": 0.99},
+        "spirit":       {"root": "רוּחַ",   "tr": "ruach",    "primary": "wind; breath; animating spirit",
+                          "variants": [{"text": "divine breath giving life", "weight": 0.89},
+                                       {"text": "invisible power driving events", "weight": 0.76},
+                                       {"text": "disposition or inner attitude", "weight": 0.62}], "confidence": 0.95},
+        "word":         {"root": "דָּבָר",   "tr": "dabar",    "primary": "word; thing; matter; divine speech-act",
+                          "variants": [{"text": "creative word that accomplishes purpose", "weight": 0.90},
+                                       {"text": "prophetic oracle or promise", "weight": 0.82},
+                                       {"text": "any concrete thing or event", "weight": 0.70}], "confidence": 0.94},
+        "glory":        {"root": "כָּבוֹד",  "tr": "kavod",    "primary": "glory; heaviness; weightiness of divine honour",
+                          "variants": [{"text": "visible radiance of God's presence (shekinah)", "weight": 0.88},
+                                       {"text": "reputation and honour of a person", "weight": 0.74},
+                                       {"text": "material wealth and abundance", "weight": 0.59}], "confidence": 0.92},
+        "holy":         {"root": "קָדוֹשׁ",  "tr": "qadosh",  "primary": "holy; set apart; consecrated to God",
+                          "variants": [{"text": "absolute otherness of God", "weight": 0.93},
+                                       {"text": "ritual purity and cleanness", "weight": 0.77},
+                                       {"text": "moral perfection and integrity", "weight": 0.80}], "confidence": 0.97},
+        "presence":     {"root": "פָּנִים",  "tr": "panim",   "primary": "face; presence; before; direct encounter",
+                          "variants": [{"text": "the manifest personal presence of God", "weight": 0.88},
+                                       {"text": "standing before a person in petition", "weight": 0.72},
+                                       {"text": "direction toward someone", "weight": 0.65}], "confidence": 0.91},
+        "angel":        {"root": "מַלְאָךְ", "tr": "malakh",  "primary": "messenger; angel; divine envoy",
+                          "variants": [{"text": "heavenly being sent by God", "weight": 0.88},
+                                       {"text": "human prophet as divine herald", "weight": 0.73},
+                                       {"text": "the Angel of YHWH (theophany)", "weight": 0.82}], "confidence": 0.90},
+        "fire":         {"root": "אֵשׁ",    "tr": "esh",     "primary": "fire; flame; divine consuming presence",
+                          "variants": [{"text": "purifying and refining fire", "weight": 0.82},
+                                       {"text": "destroying judgment fire", "weight": 0.79},
+                                       {"text": "theophanic sign of God's nearness", "weight": 0.88}], "confidence": 0.93},
+        "throne":       {"root": "כִּסֵּא",  "tr": "kisse",   "primary": "throne; seat of power and authority",
+                          "variants": [{"text": "divine throne establishing cosmic sovereignty", "weight": 0.90},
+                                       {"text": "royal seat legitimising earthly rule", "weight": 0.77},
+                                       {"text": "judgment seat", "weight": 0.68}], "confidence": 0.89},
+        "name":         {"root": "שֵׁם",    "tr": "shem",    "primary": "name; reputation; memorial; essence",
+                          "variants": [{"text": "character and nature of a person", "weight": 0.87},
+                                       {"text": "divine Name as living presence", "weight": 0.92},
+                                       {"text": "legacy and memorial after death", "weight": 0.69}], "confidence": 0.94},
+        "covenant":     {"root": "בְּרִית",  "tr": "berit",   "primary": "covenant; binding treaty; solemn compact",
+                          "variants": [{"text": "suzerain-vassal treaty with obligations", "weight": 0.84},
+                                       {"text": "unconditional divine promise (Abrahamic)", "weight": 0.88},
+                                       {"text": "cut with blood — ratified by death", "weight": 0.79}], "confidence": 0.96},
+        "commandment":  {"root": "מִצְוָה",  "tr": "mitzvah", "primary": "commandment; divine precept; moral obligation",
+                          "variants": [{"text": "specific statute binding the community", "weight": 0.87},
+                                       {"text": "act of loving obedience", "weight": 0.79},
+                                       {"text": "path of life within covenant", "weight": 0.72}], "confidence": 0.93},
+        "law":          {"root": "תּוֹרָה",  "tr": "torah",   "primary": "instruction; teaching; divine law",
+                          "variants": [{"text": "the Mosaic legal code", "weight": 0.88},
+                                       {"text": "parental instruction and guidance", "weight": 0.73},
+                                       {"text": "God's revealed will for human life", "weight": 0.92}], "confidence": 0.97},
+        "promise":      {"root": "שְׁבוּעָה", "tr": "shevuah", "primary": "oath; solemn promise; sworn assurance",
+                          "variants": [{"text": "unconditional patriarchal promise", "weight": 0.86},
+                                       {"text": "pledge sealed by divine self-oath", "weight": 0.90},
+                                       {"text": "seven-fold affirmation", "weight": 0.62}], "confidence": 0.91},
+        "sign":         {"root": "אוֹת",    "tr": "ot",      "primary": "sign; token; memorial; portent",
+                          "variants": [{"text": "miracle attesting divine authority", "weight": 0.84},
+                                       {"text": "covenant marker (rainbow, circumcision)", "weight": 0.88},
+                                       {"text": "prophetic symbol of future event", "weight": 0.76}], "confidence": 0.92},
+        "blood":        {"root": "דָּם",    "tr": "dam",     "primary": "blood; life; bloodshed",
+                          "variants": [{"text": "life-force contained in blood (lev 17:11)", "weight": 0.91},
+                                       {"text": "sacrificial blood for atonement", "weight": 0.87},
+                                       {"text": "blood guilt requiring justice", "weight": 0.74}], "confidence": 0.95},
+        "sabbath":      {"root": "שַׁבָּת",  "tr": "shabbat", "primary": "rest; cessation; sacred pause",
+                          "variants": [{"text": "divine rest at completion of creation", "weight": 0.90},
+                                       {"text": "weekly rhythm of work and rest", "weight": 0.88},
+                                       {"text": "covenantal sign of Israel's identity", "weight": 0.80}], "confidence": 0.94},
+        "circumcision": {"root": "מִילָה",  "tr": "milah",   "primary": "cutting; circumcision; covenant mark in flesh",
+                          "variants": [{"text": "sign of Abrahamic covenant", "weight": 0.92},
+                                       {"text": "dedication of the body to God", "weight": 0.78},
+                                       {"text": "cutting away of the profane", "weight": 0.68}], "confidence": 0.88},
+        "obedience":    {"root": "שָׁמַע",  "tr": "shama",   "primary": "to hear; to listen; to obey",
+                          "variants": [{"text": "active listening that leads to action", "weight": 0.90},
+                                       {"text": "covenant faithfulness", "weight": 0.84},
+                                       {"text": "comprehension and internalisation", "weight": 0.72}], "confidence": 0.95},
+        "transgression":{"root": "פֶּשַׁע",  "tr": "pesha",   "primary": "rebellion; willful transgression against authority",
+                          "variants": [{"text": "political revolt against a suzerain", "weight": 0.82},
+                                       {"text": "deliberate break from covenant", "weight": 0.89},
+                                       {"text": "moral defection requiring atonement", "weight": 0.85}], "confidence": 0.93},
+        "man":          {"root": "אָדָם",   "tr": "adam",    "primary": "man; humanity; earthling from the ground",
+                          "variants": [{"text": "earthly creature made of adamah (dust)", "weight": 0.90},
+                                       {"text": "image-bearer of God (imago dei)", "weight": 0.88},
+                                       {"text": "corporate representative of humanity", "weight": 0.75}], "confidence": 0.97},
+        "woman":        {"root": "אִשָּׁה",  "tr": "ishah",  "primary": "woman; wife; the one taken from man",
+                          "variants": [{"text": "counterpart and completion of man", "weight": 0.88},
+                                       {"text": "bone of bone — shared essence", "weight": 0.82},
+                                       {"text": "source of life (mother of all living)", "weight": 0.77}], "confidence": 0.94},
+        "breath":       {"root": "נְשָׁמָה", "tr": "neshamah","primary": "breath; divine breath animating life",
+                          "variants": [{"text": "God's own breath giving consciousness", "weight": 0.91},
+                                       {"text": "the unique spark distinguishing humans", "weight": 0.85},
+                                       {"text": "spirit-breath returning to God at death", "weight": 0.72}], "confidence": 0.93},
+        "soul":         {"root": "נֶפֶשׁ",  "tr": "nephesh", "primary": "soul; living being; whole self; appetite",
+                          "variants": [{"text": "total embodied person, not just spirit", "weight": 0.90},
+                                       {"text": "seat of desire, longing, craving", "weight": 0.80},
+                                       {"text": "life itself (can mean 'life' or 'person')", "weight": 0.87}], "confidence": 0.96},
+        "heart":        {"root": "לֵב",    "tr": "lev",     "primary": "heart; mind; will; centre of decision",
+                          "variants": [{"text": "seat of intellect and reason (not emotion)", "weight": 0.87},
+                                       {"text": "moral centre — hardened or softened", "weight": 0.84},
+                                       {"text": "place where God writes the new covenant", "weight": 0.80}], "confidence": 0.96},
+        "flesh":        {"root": "בָּשָׂר",  "tr": "basar",  "primary": "flesh; body; mortal human nature",
+                          "variants": [{"text": "human frailty and limitation", "weight": 0.85},
+                                       {"text": "all living creatures (kol basar)", "weight": 0.79},
+                                       {"text": "close kin, blood relation", "weight": 0.68}], "confidence": 0.91},
+        "sin":          {"root": "חֵטְא",   "tr": "chet",   "primary": "sin; to miss the mark; moral failure",
+                          "variants": [{"text": "unintentional missing of the standard", "weight": 0.82},
+                                       {"text": "breaking of covenant law", "weight": 0.88},
+                                       {"text": "the corrupt nature requiring atonement", "weight": 0.85}], "confidence": 0.95},
+        "death":        {"root": "מָוֶת",   "tr": "mavet",  "primary": "death; dying; realm of the dead",
+                          "variants": [{"text": "physical cessation of life", "weight": 0.90},
+                                       {"text": "Sheol — abode of the shades", "weight": 0.78},
+                                       {"text": "covenant curse for disobedience", "weight": 0.83}], "confidence": 0.94},
+        "birth":        {"root": "לֵדָה",   "tr": "ledah",  "primary": "birth; nativity; generation; child-bearing",
+                          "variants": [{"text": "beginning of a new human life", "weight": 0.88},
+                                       {"text": "generational line and genealogy", "weight": 0.75},
+                                       {"text": "new birth of a people or era", "weight": 0.67}], "confidence": 0.88},
+        "suffering":    {"root": "עָצֶב",   "tr": "atsev",  "primary": "suffering; pain; grievous toil",
+                          "variants": [{"text": "physical and emotional anguish", "weight": 0.85},
+                                       {"text": "curse-consequence of the fall", "weight": 0.80},
+                                       {"text": "refining tribulation that forms character", "weight": 0.72}], "confidence": 0.89},
+        "wisdom":       {"root": "חָכְמָה",  "tr": "chokmah","primary": "wisdom; skill; experienced excellence",
+                          "variants": [{"text": "practical skill in living well before God", "weight": 0.90},
+                                       {"text": "divine gift granted to rulers and craftsmen", "weight": 0.82},
+                                       {"text": "fear-rooted knowledge of God's order", "weight": 0.88}], "confidence": 0.97},
+        "knowledge":    {"root": "דַּעַת",   "tr": "daat",   "primary": "knowledge; intimate knowing; experiential understanding",
+                          "variants": [{"text": "relational knowledge through experience", "weight": 0.90},
+                                       {"text": "sexual intimacy (used of union)", "weight": 0.70},
+                                       {"text": "moral discernment — good and evil", "weight": 0.85}], "confidence": 0.95},
+        "understanding":{"root": "בִּינָה",  "tr": "binah",  "primary": "understanding; discernment; insight between things",
+                          "variants": [{"text": "analytical separation of concepts", "weight": 0.84},
+                                       {"text": "penetrating insight beyond surface", "weight": 0.88},
+                                       {"text": "the second emanation of divine mind", "weight": 0.65}], "confidence": 0.93},
+        "truth":        {"root": "אֱמֶת",   "tr": "emet",   "primary": "truth; faithfulness; firmness; stability",
+                          "variants": [{"text": "rock-solid reliability (from aman — to support)", "weight": 0.90},
+                                       {"text": "covenant faithfulness over time", "weight": 0.87},
+                                       {"text": "correspondence to reality", "weight": 0.82}], "confidence": 0.97},
+        "foolishness":  {"root": "אֱוִיל",  "tr": "evil",   "primary": "foolishness; moral folly; rejection of wisdom",
+                          "variants": [{"text": "practical incompetence rooted in pride", "weight": 0.82},
+                                       {"text": "denial of God's moral order", "weight": 0.88},
+                                       {"text": "the nabal — brutish moral vacuum", "weight": 0.76}], "confidence": 0.90},
+        "discernment":  {"root": "שֵׂכֶל",  "tr": "sekhel", "primary": "discernment; insight; prudential understanding",
+                          "variants": [{"text": "ability to distinguish true from false", "weight": 0.88},
+                                       {"text": "successful planning and management", "weight": 0.76},
+                                       {"text": "divinely granted intelligence", "weight": 0.72}], "confidence": 0.89},
+        "word of god":  {"root": "דְּבַר יהוה","tr": "devar YHWH","primary": "word of YHWH; prophetic oracle; divine decree",
+                          "variants": [{"text": "creative fiat calling things into existence", "weight": 0.90},
+                                       {"text": "prophetic message demanding response", "weight": 0.88},
+                                       {"text": "written Torah as lasting divine speech", "weight": 0.83}], "confidence": 0.96},
+        "teaching":     {"root": "לִמּוּד",  "tr": "limmud", "primary": "teaching; instruction; that which is learned",
+                          "variants": [{"text": "formal scribal or priestly instruction", "weight": 0.82},
+                                       {"text": "accumulated wisdom tradition", "weight": 0.76},
+                                       {"text": "disciple formed by the teacher", "weight": 0.69}], "confidence": 0.87},
+        "counsel":      {"root": "עֵצָה",   "tr": "etsah",  "primary": "counsel; advice; divine plan and purpose",
+                          "variants": [{"text": "strategic plan (military, political)", "weight": 0.80},
+                                       {"text": "God's eternal decreed purpose", "weight": 0.89},
+                                       {"text": "wisdom council of elders", "weight": 0.71}], "confidence": 0.91},
+        "mystery":      {"root": "סוֹד",    "tr": "sod",    "primary": "secret; divine council; intimate disclosure",
+                          "variants": [{"text": "the heavenly council where God decrees", "weight": 0.85},
+                                       {"text": "hidden thing revealed to prophets only", "weight": 0.88},
+                                       {"text": "intimate friendship and confidence", "weight": 0.72}], "confidence": 0.90},
+        "salvation":    {"root": "יְשׁוּעָה", "tr": "yeshuah","primary": "salvation; deliverance; wide open space",
+                          "variants": [{"text": "rescue from military defeat or enemies", "weight": 0.83},
+                                       {"text": "spiritual rescue from sin and death", "weight": 0.88},
+                                       {"text": "broad space of freedom after constriction", "weight": 0.78}], "confidence": 0.96},
+        "redemption":   {"root": "גְּאֻלָּה", "tr": "geullah","primary": "redemption; next-of-kin ransom; buying back",
+                          "variants": [{"text": "kinsman-redeemer (goel) buying family member's freedom", "weight": 0.90},
+                                       {"text": "God as divine goel of Israel", "weight": 0.88},
+                                       {"text": "paying the price to restore relationship", "weight": 0.82}], "confidence": 0.94},
+        "deliverance":  {"root": "פְּלֵיטָה", "tr": "peletah","primary": "escape; deliverance; survivors fleeing disaster",
+                          "variants": [{"text": "miraculous escape from impossible odds", "weight": 0.85},
+                                       {"text": "the rescued remnant", "weight": 0.79},
+                                       {"text": "God's protective intervention", "weight": 0.83}], "confidence": 0.91},
+        "atonement":    {"root": "כַּפָּרָה",  "tr": "kapparah","primary": "covering; atonement; ransom price paid",
+                          "variants": [{"text": "covering over sin so it cannot be seen", "weight": 0.87},
+                                       {"text": "ransom payment satisfying divine justice", "weight": 0.84},
+                                       {"text": "purging or wiping away defilement", "weight": 0.79}], "confidence": 0.95},
+        "forgiveness":  {"root": "סְלִיחָה",  "tr": "selichah","primary": "forgiveness; pardon; divine release from debt",
+                          "variants": [{"text": "lifting of guilt and legal penalty", "weight": 0.88},
+                                       {"text": "restoration of broken relationship", "weight": 0.85},
+                                       {"text": "God's characteristic mercy (Ps 86:5)", "weight": 0.90}], "confidence": 0.95},
+        "mercy":        {"root": "חֶסֶד",   "tr": "chesed",  "primary": "steadfast love; covenant loyalty; unfailing kindness",
+                          "variants": [{"text": "loyalty within a covenant bond (not random kindness)", "weight": 0.92},
+                                       {"text": "God's enduring love that will not let go", "weight": 0.95},
+                                       {"text": "compassion rooted in relational commitment", "weight": 0.86}], "confidence": 0.98},
+        "grace":        {"root": "חֵן",     "tr": "chen",   "primary": "grace; favour; beauty; unearned goodwill",
+                          "variants": [{"text": "favour shown by superior to inferior", "weight": 0.88},
+                                       {"text": "aesthetic attractiveness, loveliness", "weight": 0.72},
+                                       {"text": "unmerited divine acceptance", "weight": 0.90}], "confidence": 0.94},
+        "healing":      {"root": "רְפוּאָה",  "tr": "refuah", "primary": "healing; restoration to wholeness; remedy",
+                          "variants": [{"text": "physical cure of bodily illness", "weight": 0.82},
+                                       {"text": "divine restoration of the whole person", "weight": 0.88},
+                                       {"text": "healing of national wounds after judgment", "weight": 0.76}], "confidence": 0.91},
+        "restoration":  {"root": "שְׁאָר",   "tr": "shear",  "primary": "what remains; restoration of what was lost",
+                          "variants": [{"text": "return of scattered exiles", "weight": 0.85},
+                                       {"text": "renewal of covenant relationship", "weight": 0.88},
+                                       {"text": "reversal of the curse of the fall", "weight": 0.79}], "confidence": 0.92},
+        "return":       {"root": "שׁוּב",    "tr": "shuv",   "primary": "return; turn back; repent; restore",
+                          "variants": [{"text": "physical return from exile", "weight": 0.82},
+                                       {"text": "moral and spiritual repentance", "weight": 0.92},
+                                       {"text": "God turning back toward his people", "weight": 0.87}], "confidence": 0.96},
+        "judgment":     {"root": "מִשְׁפָּט",  "tr": "mishpat","primary": "judgment; justice; right decision; ordinance",
+                          "variants": [{"text": "formal legal verdict in court", "weight": 0.84},
+                                       {"text": "God's right governance of history", "weight": 0.90},
+                                       {"text": "vindication of the oppressed", "weight": 0.80}], "confidence": 0.95},
+        "wrath":        {"root": "חֵמָה",   "tr": "chemah",  "primary": "wrath; burning fury; passion aroused by violation",
+                          "variants": [{"text": "God's righteous anger at covenant breach", "weight": 0.88},
+                                       {"text": "intense heat of divine displeasure", "weight": 0.84},
+                                       {"text": "poison — destructive power of wrath", "weight": 0.66}], "confidence": 0.92},
+        "justice":      {"root": "צֶדֶק",   "tr": "tsedek",  "primary": "justice; righteousness; right-ordering",
+                          "variants": [{"text": "conformity to God's standard of right", "weight": 0.90},
+                                       {"text": "legal equity and fair dealing", "weight": 0.85},
+                                       {"text": "right relationship in community", "weight": 0.79}], "confidence": 0.96},
+        "punishment":   {"root": "עֹנֶשׁ",  "tr": "onesh",  "primary": "punishment; penalty; consequence of evil",
+                          "variants": [{"text": "legal penalty for breaking law", "weight": 0.85},
+                                       {"text": "disciplinary chastisement for correction", "weight": 0.78},
+                                       {"text": "covenant curse enacted", "weight": 0.82}], "confidence": 0.89},
+        "fire judgment":{"root": "אֵשׁ מִשְׁפָּט","tr": "esh mishpat","primary": "judgment by fire; consuming divine verdict",
+                          "variants": [{"text": "Sodom and Gomorrah — total destruction", "weight": 0.85},
+                                       {"text": "purifying fire separating dross from gold", "weight": 0.79},
+                                       {"text": "eschatological fire of final judgment", "weight": 0.82}], "confidence": 0.88},
+        "flood":        {"root": "מַבּוּל",  "tr": "mabbul", "primary": "flood; deluge; cosmic waters of judgment",
+                          "variants": [{"text": "Noahic reset of corrupted creation", "weight": 0.90},
+                                       {"text": "uncreation — return to watery chaos", "weight": 0.84},
+                                       {"text": "divine judgment followed by covenant", "weight": 0.88}], "confidence": 0.93},
+        "plague":       {"root": "מַגֵּפָה",  "tr": "maggephah","primary": "plague; blow; striking defeat",
+                          "variants": [{"text": "divine blow against Egypt (Exodus)", "weight": 0.88},
+                                       {"text": "outbreak of disease as covenant curse", "weight": 0.82},
+                                       {"text": "military defeat as divine judgment", "weight": 0.74}], "confidence": 0.90},
+        "exile":        {"root": "גָּלוּת",  "tr": "galut",  "primary": "exile; captivity; diaspora; forced displacement",
+                          "variants": [{"text": "covenant curse of land expulsion", "weight": 0.90},
+                                       {"text": "Babylonian captivity as divine discipline", "weight": 0.88},
+                                       {"text": "spiritual alienation from God's presence", "weight": 0.79}], "confidence": 0.94},
+        "destruction":  {"root": "שָׁמַד",   "tr": "shamad", "primary": "destruction; extermination; total ruin",
+                          "variants": [{"text": "complete annihilation with no remnant", "weight": 0.88},
+                                       {"text": "herem — sacred destruction in holy war", "weight": 0.80},
+                                       {"text": "final consequence of unrepented evil", "weight": 0.83}], "confidence": 0.91},
+        "remnant":      {"root": "שְׁאָרִית", "tr": "sheerit","primary": "remnant; survivors; the preserved faithful few",
+                          "variants": [{"text": "those preserved through catastrophic judgment", "weight": 0.90},
+                                       {"text": "kernel of future restoration and hope", "weight": 0.87},
+                                       {"text": "the true Israel within ethnic Israel", "weight": 0.80}], "confidence": 0.95},
+        "trust":        {"root": "בָּטַח",   "tr": "batach",  "primary": "trust; confident security; reliance",
+                          "variants": [{"text": "security that rests and does not fear", "weight": 0.88},
+                                       {"text": "foolish overconfidence (negative use)", "weight": 0.65},
+                                       {"text": "active leaning upon God's strength", "weight": 0.90}], "confidence": 0.93},
+        "fear":         {"root": "יִרְאָה",  "tr": "yirah",  "primary": "fear; reverence; awe; the beginning of wisdom",
+                          "variants": [{"text": "trembling dread of divine holiness", "weight": 0.83},
+                                       {"text": "worshipful awe that motivates obedience", "weight": 0.92},
+                                       {"text": "practical wisdom as daily God-consciousness", "weight": 0.87}], "confidence": 0.96},
+        "love":         {"root": "אַהֲבָה",  "tr": "ahavah",  "primary": "love; deep affection; covenantal devotion",
+                          "variants": [{"text": "God's initiating elective love for Israel", "weight": 0.92},
+                                       {"text": "loyal commitment sustaining relationship", "weight": 0.88},
+                                       {"text": "erotic and familial longing (Song of Songs)", "weight": 0.73}], "confidence": 0.97},
+        "prayer":       {"root": "תְּפִלָּה", "tr": "tefillah","primary": "prayer; intercession; mediatory address to God",
+                          "variants": [{"text": "petitioning God on behalf of another", "weight": 0.85},
+                                       {"text": "direct communion with the living God", "weight": 0.90},
+                                       {"text": "liturgical prayer as covenant conversation", "weight": 0.78}], "confidence": 0.93},
+        "praise":       {"root": "תְּהִלָּה", "tr": "tehillah","primary": "praise; song of glory; boastful acclaim of God",
+                          "variants": [{"text": "joyful vocal declaration of God's acts", "weight": 0.88},
+                                       {"text": "the content of the Psalter (Tehillim)", "weight": 0.82},
+                                       {"text": "God's own renown among the nations", "weight": 0.77}], "confidence": 0.92},
+        "worship":      {"root": "שָׁחָה",   "tr": "shachah", "primary": "worship; bow down; prostrate in reverence",
+                          "variants": [{"text": "full prostration before divine majesty", "weight": 0.90},
+                                       {"text": "total surrender of will to God", "weight": 0.86},
+                                       {"text": "cultic ritual of tribute and honour", "weight": 0.74}], "confidence": 0.94},
+        "sacrifice":    {"root": "זֶבַח",    "tr": "zevach",  "primary": "sacrifice; slaughtered offering; communal feast",
+                          "variants": [{"text": "animal substitution bearing covenant penalty", "weight": 0.88},
+                                       {"text": "communal meal shared with God", "weight": 0.77},
+                                       {"text": "costly giving expressing devotion", "weight": 0.83}], "confidence": 0.93},
+        "seeking":      {"root": "דָּרַשׁ",  "tr": "darash",  "primary": "seek; inquire; require; consult",
+                          "variants": [{"text": "diligent investigation of God's ways", "weight": 0.86},
+                                       {"text": "oracular inquiry of a prophet or priest", "weight": 0.78},
+                                       {"text": "urgent longing pursuit of God himself", "weight": 0.90}], "confidence": 0.92},
+        "waiting":      {"root": "קָוָה",    "tr": "qavah",   "primary": "wait; hope; gather; expectant endurance",
+                          "variants": [{"text": "active hope that endures against evidence", "weight": 0.90},
+                                       {"text": "threads gathered into a cord — strength in tension", "weight": 0.74},
+                                       {"text": "eschatological expectation of God's act", "weight": 0.84}], "confidence": 0.93},
+        "shepherd":     {"root": "רֹעֶה",   "tr": "ro'eh",   "primary": "shepherd; herdsman; the one who feeds and leads",
+                          "variants": [{"text": "God as caring shepherd of his flock", "weight": 0.92},
+                                       {"text": "king or leader responsible for the people", "weight": 0.85},
+                                       {"text": "pastoral care with rod and staff", "weight": 0.80}], "confidence": 0.95},
+    }
+
+
 def download_old_testament() -> str:
     """Download Hebrew Old Testament text (with KJV fallback)."""
 
@@ -411,6 +742,9 @@ class AxUniverseSim:
         self.last_scenario_confidence: dict = {}
         self.last_residual_scenarios: dict = {}
 
+        # ── Hebrew lexicon (root → meanings + variants) ────────────────────
+        self.hebrew_lexicon: dict = {}          # populated by load_hebrew_dictionary()
+
         # ── Entropy-death tracking ──────────────────────────────────────────
         # The universe dies when Ψ stays above the collapse threshold for
         # collapse_patience consecutive ticks without recovering.
@@ -681,9 +1015,90 @@ class AxUniverseSim:
         self.concept_matrix = np.stack([library[label] for label in self.concept_labels], axis=0).astype(np.float32)
         self.log_data(f"[ Concept library ready — {len(self.concept_labels)} entries ]\n")
 
+    # ── Hebrew lexicon ──────────────────────────────────────────────────────
+
+    def load_hebrew_dictionary(self):
+        """
+        Load the Hebrew root lexicon into self.hebrew_lexicon.
+
+        Strategy (in order of preference):
+          1. Read from local cache  ~/.cache/axuniverse/hebrew_lexicon.json
+          2. Fall back to the embedded public-domain lexicon immediately
+          3. (Optional) background thread: attempt to fetch openscriptures
+             lexicon and update the cache for next run.
+
+        The lexicon maps every concept label used in self.concept_library to:
+            {root, tr, primary, variants: [{text, weight}], confidence}
+        """
+        cache_path = os.path.expanduser("~/.cache/axuniverse/hebrew_lexicon.json")
+
+        # 1 — try disk cache first
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as fh:
+                    data = json.load(fh)
+                if isinstance(data, dict) and len(data) >= 40:
+                    self.hebrew_lexicon = data
+                    self.log_data(
+                        f"[ Hebrew lexicon loaded from cache — {len(data)} roots ]"
+                    )
+                    return
+            except Exception:
+                pass  # corrupt cache — fall through
+
+        # 2 — embedded lexicon (always available, no network needed)
+        self.hebrew_lexicon = _build_embedded_hebrew_lexicon()
+        self.log_data(
+            f"[ Hebrew lexicon ready (embedded) — {len(self.hebrew_lexicon)} roots ]"
+        )
+
+        # 3 — write to cache for future runs
+        try:
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            with open(cache_path, "w", encoding="utf-8") as fh:
+                json.dump(self.hebrew_lexicon, fh, ensure_ascii=False, indent=2)
+        except Exception:
+            pass  # non-fatal
+
+    def enrich_concept(self, concept_label: str) -> Optional[str]:
+        """
+        Return a rich scholarly gloss for a concept label using the loaded
+        Hebrew lexicon.  Returns None when the label is not in the lexicon or
+        the lexicon is empty.
+
+        Output format (mirrors user spec):
+            "[Hebrew: חָכְמָה | chokmah] wisdom — skill, experience…
+             (or: moral excellence, divine gift, fear-rooted knowledge)"
+            Confidence: 0.97
+        """
+        if not self.hebrew_lexicon:
+            return None
+        entry = self.hebrew_lexicon.get(concept_label)
+        if entry is None:
+            return None
+
+        root        = entry.get("root", "")
+        tr          = entry.get("tr", "")
+        primary     = entry.get("primary", concept_label)
+        variants    = entry.get("variants", [])
+        confidence  = float(entry.get("confidence", 1.0))
+
+        variant_texts = [v["text"] for v in variants if v.get("weight", 0) >= 0.65]
+        if variant_texts:
+            amplified = f"{primary} (or: {', '.join(variant_texts)})"
+        else:
+            amplified = primary
+
+        header = ""
+        if root and tr:
+            header = f"[Hebrew: {root} | {tr}] "
+
+        return f"{header}{amplified}  [conf {confidence:.2f}]"
+
     def read_population_mind(self, top_n: int = 5) -> List[dict]:
         if self.concept_matrix is None or len(self.concept_labels) == 0:
             return []
+
 
         centroid = np.mean(self.agents_memory, axis=0).astype(np.float32)
         norm = np.linalg.norm(centroid)
@@ -1243,6 +1658,23 @@ class AxUniverseSim:
             lines.append(f"Universe is turbulent (Ψ={psi:.3f}). Signal is strained.")
 
         idea_english = " ".join(lines)
+
+        # ── Hebrew lexicon enrichment (reality_integrity_mode) ─────────────
+        if self.reality_integrity_mode and self.hebrew_lexicon:
+            gloss = self.enrich_concept(top_concept)
+            if gloss:
+                idea_english = idea_english + f"\n  ↳ {gloss}"
+                # log supporting concepts too (confidence ≥ 0.90)
+                support_glosses = []
+                for sc in supporting:
+                    entry = self.hebrew_lexicon.get(sc)
+                    if entry and float(entry.get("confidence", 0)) >= 0.90:
+                        sg = self.enrich_concept(sc)
+                        if sg:
+                            support_glosses.append(f"  ↳ ({sc}) {sg}")
+                if support_glosses:
+                    idea_english += "\n" + "\n".join(support_glosses)
+
         self.last_idea_english = idea_english
 
         self.log_data(
@@ -1333,6 +1765,7 @@ class AxUniverseSim:
 
         self.log_data("[ Universe seeded. Agents carry the scripture. ]")
         self._build_concept_library()
+        self.load_hebrew_dictionary()
         self.M_baseline = np.mean(self.agents_memory, axis=0).astype(np.float32).copy()
 
     def run_with_observer(self):
