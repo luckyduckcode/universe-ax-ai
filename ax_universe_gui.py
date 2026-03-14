@@ -1,6 +1,7 @@
 import numpy as np
 import tkinter as tk
 from tkinter import ttk, scrolledtext
+from datetime import datetime
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.animation import FuncAnimation
@@ -174,7 +175,8 @@ class UniverseGUI:
         log_frame = ttk.LabelFrame(self.tab_log, text="Universe Data Log", padding=5)
         log_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=10)
         self.log_text = scrolledtext.ScrolledText(
-            log_frame, height=8, bg="#0d1117", fg="#c9d1d9", font=("Consolas", 10))
+            log_frame, height=8, bg="#0d1117", fg="#c9d1d9", font=("Consolas", 10),
+            state=tk.DISABLED)
         self.log_text.pack(fill=tk.BOTH, expand=True)
         ttk.Button(log_frame, text="Clear Log", command=self.clear_log).pack(pady=(4, 2))
         self.sim.on_data_log = self.append_data_log
@@ -606,9 +608,8 @@ class UniverseGUI:
         self.idea_var.set("")
         self.reception_var.set("")
         self.sim.global_psi = min(0.35, self.sim.global_psi + 0.12)
-        self.log_text.insert(tk.END,
-            f"[ Cycle {self.sim.cycle_number} retry — "
-            f"Ψ reset to {self.sim.global_psi:.4f} ]\n")
+        self.append_data_log(
+            f"[ Cycle {self.sim.cycle_number} retry — Ψ reset to {self.sim.global_psi:.4f} ]")
         if self.running:
             self.run_loop_step()
 
@@ -726,9 +727,12 @@ class UniverseGUI:
         self.append_response_log(response)
 
     def append_data_log(self, msg: str):
-        self.log_text.insert(tk.END, msg + "\n")
+        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        self.log_text.config(state=tk.NORMAL)
+        self.log_text.insert(tk.END, f"[{ts}] {msg}\n")
         self.log_text.see(tk.END)
         self._trim(self.log_text, 800)
+        self.log_text.config(state=tk.DISABLED)
 
     def append_response_log(self, msg: str):
         self.response_text.insert(tk.END, msg + "\n\n")
@@ -736,7 +740,9 @@ class UniverseGUI:
         self._trim(self.response_text, 300)
 
     def clear_log(self):
+        self.log_text.config(state=tk.NORMAL)
         self.log_text.delete("1.0", tk.END)
+        self.log_text.config(state=tk.DISABLED)
 
     def _trim(self, widget, max_lines: int):
         lines = int(float(widget.index("end-1c").split(".")[0]))
