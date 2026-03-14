@@ -42,7 +42,20 @@ class UniverseGUI:
         self.prompt_entry.pack(side=tk.LEFT, padx=5)
         ttk.Button(ctrl_frame, text="Send", command=self.send_prompt).pack(side=tk.LEFT)
 
-        earth_frame = ttk.LabelFrame(master, text="Earth Channel — Observer Interface", padding=8)
+        # ── Tabbed notebook ──────────────────────────────────────────────────
+        self.notebook = ttk.Notebook(master)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=6, pady=(4, 6))
+
+        self.tab_earth = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_earth, text="🌍  Earth Channel")
+
+        self.tab_log = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_log, text="📡  Universe Log")
+
+        self.tab_plot = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_plot, text="📈  Ψ Plot")
+
+        earth_frame = ttk.LabelFrame(self.tab_earth, text="Earth Channel — Observer Interface", padding=8)
         earth_frame.pack(fill=tk.X, padx=10, pady=(6, 0))
 
         top_row = ttk.Frame(earth_frame)
@@ -100,7 +113,7 @@ class UniverseGUI:
         self.response_entry.bind("<Return>", lambda e: self.submit_response())
 
         # ── Population mind readout ────────────────────────────────────────────
-        mind_frame = ttk.LabelFrame(master, text="Population Mind  —  what the agents are expressing", padding=6)
+        mind_frame = ttk.LabelFrame(self.tab_earth, text="Population Mind  —  what the agents are expressing", padding=6)
         mind_frame.pack(fill=tk.X, padx=10, pady=(4, 0))
 
         self.mind_concepts_var = tk.StringVar(value="Awaiting concept library...")
@@ -116,7 +129,7 @@ class UniverseGUI:
               foreground="#8b949e").pack(fill=tk.X)
 
         # ── Latest answer ─────────────────────────────────────────────────────
-        answer_frame = ttk.LabelFrame(master, text="Latest Answer", padding=5)
+        answer_frame = ttk.LabelFrame(self.tab_earth, text="Latest Answer", padding=5)
         answer_frame.pack(fill=tk.X, expand=False, pady=(5, 0), padx=10)
         self.answer_var = tk.StringVar(value="No answer yet.")
         ttk.Label(answer_frame, textvariable=self.answer_var,
@@ -124,7 +137,7 @@ class UniverseGUI:
 
         # ── Residual / prayer decompression panel ─────────────────────────────
         residual_frame = ttk.LabelFrame(
-            master, text="Residual  —  what the population became beyond your vocabulary", padding=6)
+            self.tab_earth, text="Residual  —  what the population became beyond your vocabulary", padding=6)
         residual_frame.pack(fill=tk.X, padx=10, pady=(4, 0))
 
         res_top = ttk.Frame(residual_frame)
@@ -158,11 +171,12 @@ class UniverseGUI:
         self._residual_canvas.pack(fill=tk.X, pady=(0, 2))
 
         # ── Data log ──────────────────────────────────────────────────────────
-        log_frame = ttk.LabelFrame(master, text="Universe Data Log", padding=5)
-        log_frame.pack(fill=tk.BOTH, expand=False, pady=5, padx=10)
+        log_frame = ttk.LabelFrame(self.tab_log, text="Universe Data Log", padding=5)
+        log_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=10)
         self.log_text = scrolledtext.ScrolledText(
             log_frame, height=8, bg="#0d1117", fg="#c9d1d9", font=("Consolas", 10))
         self.log_text.pack(fill=tk.BOTH, expand=True)
+        ttk.Button(log_frame, text="Clear Log", command=self.clear_log).pack(pady=(4, 2))
         self.sim.on_data_log = self.append_data_log
         self.sim.on_response = self.handle_response
         self.sim.on_collapse = self._on_universe_collapse
@@ -170,14 +184,14 @@ class UniverseGUI:
         self.sim.on_residual = self._on_residual
 
         # ── Response log ──────────────────────────────────────────────────────
-        response_frame = ttk.LabelFrame(master, text="Assistant Responses", padding=5)
-        response_frame.pack(fill=tk.BOTH, expand=False, pady=(0, 5), padx=10)
+        response_frame = ttk.LabelFrame(self.tab_earth, text="Assistant Responses", padding=5)
+        response_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5), padx=10)
         self.response_text = scrolledtext.ScrolledText(
             response_frame, height=5, bg="#0b1320", fg="#e6edf3", font=("Consolas", 10))
         self.response_text.pack(fill=tk.BOTH, expand=True)
 
         # ── Plot ──────────────────────────────────────────────────────────────
-        plot_frame = ttk.LabelFrame(master, text="Global Ψ Evolution", padding=5)
+        plot_frame = ttk.LabelFrame(self.tab_plot, text="Global Ψ Evolution", padding=5)
         plot_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
         self.fig, self.ax = plt.subplots(figsize=(9, 3.5), facecolor="#0d1117")
@@ -720,6 +734,9 @@ class UniverseGUI:
         self.response_text.insert(tk.END, msg + "\n\n")
         self.response_text.see(tk.END)
         self._trim(self.response_text, 300)
+
+    def clear_log(self):
+        self.log_text.delete("1.0", tk.END)
 
     def _trim(self, widget, max_lines: int):
         lines = int(float(widget.index("end-1c").split(".")[0]))
