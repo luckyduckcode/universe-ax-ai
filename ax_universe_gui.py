@@ -734,6 +734,9 @@ class UniverseGUI:
         self._trim(self.log_text, 800)
         self.log_text.config(state=tk.DISABLED)
 
+    # alias used by sim-side callers
+    log_universe_data = append_data_log
+
     def append_response_log(self, msg: str):
         self.response_text.insert(tk.END, msg + "\n\n")
         self.response_text.see(tk.END)

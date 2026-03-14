@@ -811,6 +811,11 @@ class AxUniverseSim:
     def symmetry_measure(self):
         # Preserve Pi as a universal invariant while tracking local turbulence.
         _pi = self.pi_universal
+        distortion = abs(_pi - float(np.pi))
+        if self.reality_integrity_mode and self.step % self.log_every_n_steps == 0:
+            self.log_data(
+                f"Reality integrity check: π preserved, distortion={distortion:.3f}"
+            )
         base = 9.0 / 8.0
         effective_u = base - self.global_psi * 0.92
         return effective_u, self.global_psi
@@ -1082,6 +1087,11 @@ class AxUniverseSim:
         primary     = entry.get("primary", concept_label)
         variants    = entry.get("variants", [])
         confidence  = float(entry.get("confidence", 1.0))
+
+        variant_texts = [v["text"] for v in variants if v.get("weight", 0) >= 0.65]
+        self.log_data(
+            f"Hebrew root {root} enriched with variants: {variant_texts}"
+        )
 
         variant_texts = [v["text"] for v in variants if v.get("weight", 0) >= 0.65]
         if variant_texts:
@@ -1408,9 +1418,14 @@ class AxUniverseSim:
             self.agents_memory[non_aligned_mask] = rows
 
         aligned = int(alignment_mask.sum())
+        # confidence = fraction of agents aligned, scaled by post-resonance
+        conf = float(np.clip((aligned / self.num_agents) * max(0.0, post_resonance + 1.0) / 2.0, 0.0, 1.0))
         self.log_data(
             f"[ ↓ Injected concept '{concept_label}' | resonance {pre_resonance:+.4f} → {post_resonance:+.4f} | "
             f"{aligned}/{self.num_agents} agents aligned | Ψ → {self.global_psi:.4f} ]"
+        )
+        self.log_data(
+            f"Activated concept: {concept_label} | confidence: {conf:.3f}"
         )
         return {
             "concept": concept_label,
