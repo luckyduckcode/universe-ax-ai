@@ -1,5 +1,6 @@
 import numpy as np
 import tkinter as tk
+import os
 from tkinter import ttk, scrolledtext
 from datetime import datetime
 import matplotlib.pyplot as plt
@@ -7,6 +8,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.animation import FuncAnimation
 import threading
 import time
+import json
 from ax_universe_sim import AxUniverseSim
 
 
@@ -24,6 +26,9 @@ class UniverseGUI:
         self._cycle_started_at = None
         self._cycle_timer_job = None
         self._last_cycle_duration = None
+        self.fast_forward_mode = False
+        self.log_interval = 5
+        self.earth_check_interval = 10
 
         # ── Control frame ────────────────────────────────────────────────────
         ctrl_frame = ttk.Frame(master, padding=10)
@@ -43,6 +48,14 @@ class UniverseGUI:
         self.prompt_entry.pack(side=tk.LEFT, padx=5)
         ttk.Button(ctrl_frame, text="Send", command=self.send_prompt).pack(side=tk.LEFT)
 
+        ttk.Separator(ctrl_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, padx=(12, 4), fill=tk.Y)
+        self.btn_divine = ttk.Button(ctrl_frame, text="✦ Divine Light",
+                                     command=self._invoke_divine_light)
+        self.btn_divine.pack(side=tk.LEFT, padx=4)
+        self.divine_status_var = tk.StringVar(value="")
+        ttk.Label(ctrl_frame, textvariable=self.divine_status_var,
+                  foreground="#e6c84a", font=("Consolas", 9)).pack(side=tk.LEFT, padx=(4, 0))
+
         # ── Tabbed notebook ──────────────────────────────────────────────────
         self.notebook = ttk.Notebook(master)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=6, pady=(4, 6))
@@ -55,6 +68,12 @@ class UniverseGUI:
 
         self.tab_plot = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_plot, text="📈  Ψ Plot")
+
+        self.tab_concepts = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_concepts, text="✦  Living Concepts")
+
+        self.tab_laws = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_laws, text="📜  Law Library")
 
         earth_frame = ttk.LabelFrame(self.tab_earth, text="Earth Channel — Observer Interface", padding=8)
         earth_frame.pack(fill=tk.X, padx=10, pady=(6, 0))
@@ -129,6 +148,40 @@ class UniverseGUI:
               font=("Consolas", 9),
               foreground="#8b949e").pack(fill=tk.X)
 
+        # ── Assembly voices (agent personas) ─────────────────────────────────
+        voices_frame = ttk.LabelFrame(self.tab_earth, text="Assembly Voices", padding=6)
+        voices_frame.pack(fill=tk.BOTH, expand=False, padx=10, pady=(4, 0))
+        self.spokesperson_var = tk.StringVar(value="Communing with: Waiting for assembly...")
+        self.spokesperson_label = ttk.Label(voices_frame, textvariable=self.spokesperson_var)
+        self.spokesperson_label.pack(anchor=tk.W, pady=(0, 5))
+        self.voices_var = tk.StringVar(value="Awaiting Earth cycle…")
+        ttk.Label(voices_frame, textvariable=self.voices_var,
+                  wraplength=920, justify=tk.LEFT,
+                  font=("Consolas", 9),
+                  foreground="#79c0ff").pack(fill=tk.X)
+        ttk.Button(voices_frame, text="Hear Assembly", command=self._refresh_assembly_voices).pack(
+            anchor=tk.W, pady=(5, 0)
+        )
+
+        # ── Enlightenment epoch status ────────────────────────────────────────
+        enlight_outer = ttk.LabelFrame(self.tab_earth, text="✦ Enlightenment Epoch", padding=6)
+        enlight_outer.pack(fill=tk.X, padx=10, pady=(4, 0))
+        enlight_row = ttk.Frame(enlight_outer)
+        enlight_row.pack(fill=tk.X)
+        self.enlight_status_var = tk.StringVar(value="No active epoch")
+        self._enlight_label = ttk.Label(enlight_row, textvariable=self.enlight_status_var,
+                                        font=("Consolas", 10, "bold"),
+                                        foreground="#555555")
+        self._enlight_label.pack(side=tk.LEFT, padx=(0, 12))
+        self._light_bar = ttk.Progressbar(enlight_row, orient=tk.HORIZONTAL,
+                                          length=200, mode="determinate",
+                                          maximum=100)
+        self._light_bar.pack(side=tk.LEFT, padx=(0, 10))
+        self._light_bar["value"] = 0
+        self.concept_count_var = tk.StringVar(value="Concepts: 0")
+        ttk.Label(enlight_row, textvariable=self.concept_count_var,
+                  font=("Consolas", 9), foreground="#8b949e").pack(side=tk.RIGHT)
+
         # ── Latest answer ─────────────────────────────────────────────────────
         answer_frame = ttk.LabelFrame(self.tab_earth, text="Latest Answer", padding=5)
         answer_frame.pack(fill=tk.X, expand=False, pady=(5, 0), padx=10)
@@ -178,6 +231,13 @@ class UniverseGUI:
             log_frame, height=8, bg="#0d1117", fg="#c9d1d9", font=("Consolas", 10),
             state=tk.DISABLED)
         self.log_text.pack(fill=tk.BOTH, expand=True)
+        self.log_text.tag_config("step",        foreground="#00CC44")
+        self.log_text.tag_config("mind",        foreground="#CC88FF")
+        self.log_text.tag_config("scenario",    foreground="#7B9FFF")
+        self.log_text.tag_config("earth_cycle", foreground="#FF6533", background="#1a1200")
+        self.log_text.tag_config("enlighten",   foreground="#e6c84a", background="#160e00")
+        self.log_text.tag_config("new_concept", foreground="#ff9f43",
+                                 font=("Consolas", 10, "bold"))
         ttk.Button(log_frame, text="Clear Log", command=self.clear_log).pack(pady=(4, 2))
         self.sim.on_data_log = self.append_data_log
         self.sim.on_response = self.handle_response
@@ -191,6 +251,90 @@ class UniverseGUI:
         self.response_text = scrolledtext.ScrolledText(
             response_frame, height=5, bg="#0b1320", fg="#e6edf3", font=("Consolas", 10))
         self.response_text.pack(fill=tk.BOTH, expand=True)
+
+        # ── Living Concepts tab ───────────────────────────────────────────────
+        concepts_top = ttk.Frame(self.tab_concepts)
+        concepts_top.pack(fill=tk.X, padx=10, pady=(6, 0))
+        self.concept_summary_var = tk.StringVar(value="Concepts: 0  (0 fixed | 0 dynamic)")
+        ttk.Label(concepts_top, textvariable=self.concept_summary_var,
+                  font=("Consolas", 11, "bold"), foreground="#e6c84a").pack(side=tk.LEFT)
+        ttk.Button(concepts_top, text="↺ Refresh",
+                   command=self._refresh_concepts_tab).pack(side=tk.RIGHT, padx=5)
+
+        dynamic_frame = ttk.LabelFrame(
+            self.tab_concepts,
+            text="Dynamic Concepts  —  born during simulation",
+            padding=5)
+        dynamic_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(4, 0))
+        self.dynamic_concepts_text = scrolledtext.ScrolledText(
+            dynamic_frame, height=10, bg="#0d1117", fg="#c9d1d9",
+            font=("Consolas", 9), state=tk.DISABLED)
+        self.dynamic_concepts_text.pack(fill=tk.BOTH, expand=True)
+        self.dynamic_concepts_text.tag_config(
+            "header", foreground="#e6c84a", font=("Consolas", 9, "bold"))
+        self.dynamic_concepts_text.tag_config("inspired", foreground="#ff9f43")
+        self.dynamic_concepts_text.tag_config("normal",   foreground="#79c0ff")
+
+        archive_frame = ttk.LabelFrame(
+            self.tab_concepts,
+            text="Knowledge Archive  —  shared agent memory",
+            padding=5)
+        archive_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(4, 4))
+        self.archive_text = scrolledtext.ScrolledText(
+            archive_frame, height=8, bg="#0b1320", fg="#c9d1d9",
+            font=("Consolas", 9), state=tk.DISABLED)
+        self.archive_text.pack(fill=tk.BOTH, expand=True)
+
+        # ── Law Library tab ───────────────────────────────────────────────────
+        laws_top_row = ttk.Frame(self.tab_laws)
+        laws_top_row.pack(fill=tk.X, padx=10, pady=(6, 0))
+        self.laws_count_var = tk.StringVar(value="Laws documented: 0")
+        ttk.Label(laws_top_row, textvariable=self.laws_count_var,
+                  font=("Consolas", 11, "bold"), foreground="#e6c84a").pack(side=tk.LEFT)
+        ttk.Button(laws_top_row, text="↺ Refresh",
+                   command=self._refresh_laws_tab).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(laws_top_row, text="🌱 Reseed Universe",
+                   command=self._reseed_from_laws).pack(side=tk.RIGHT, padx=5)
+
+        laws_pane = ttk.PanedWindow(self.tab_laws, orient=tk.HORIZONTAL)
+        laws_pane.pack(fill=tk.BOTH, expand=True, padx=10, pady=(4, 0))
+
+        law_list_frame = ttk.LabelFrame(
+            laws_pane, text="Documented Laws — Scripture of the Universe", padding=5)
+        laws_pane.add(law_list_frame, weight=3)
+        self.laws_list_text = scrolledtext.ScrolledText(
+            law_list_frame, height=12, bg="#0d1117", fg="#c9d1d9",
+            font=("Consolas", 9), state=tk.DISABLED)
+        self.laws_list_text.pack(fill=tk.BOTH, expand=True)
+        self.laws_list_text.tag_config("header",   foreground="#e6c84a", font=("Consolas", 9, "bold"))
+        self.laws_list_text.tag_config("law_name", foreground="#ff9f43")
+        self.laws_list_text.tag_config("meta",     foreground="#79c0ff")
+        self.laws_list_text.tag_config("hebrew",   foreground="#58d68d")
+
+        law_map_frame = ttk.LabelFrame(
+            laws_pane, text="2D Law Map  (PCA / t-SNE)", padding=5)
+        laws_pane.add(law_map_frame, weight=2)
+        self._laws_map_canvas = tk.Canvas(law_map_frame, bg="#0d1117", highlightthickness=0)
+        self._laws_map_canvas.pack(fill=tk.BOTH, expand=True)
+        self._laws_map_canvas.bind("<Configure>", lambda e: self._draw_law_map())
+
+        law_search_frame = ttk.LabelFrame(
+            self.tab_laws,
+            text="Semantic Search — find laws geometrically similar to any concept",
+            padding=6)
+        law_search_frame.pack(fill=tk.X, padx=10, pady=(4, 4))
+        law_search_row = ttk.Frame(law_search_frame)
+        law_search_row.pack(fill=tk.X)
+        ttk.Label(law_search_row, text="Query:").pack(side=tk.LEFT, padx=(0, 5))
+        self.law_search_entry = ttk.Entry(law_search_row, width=44)
+        self.law_search_entry.pack(side=tk.LEFT, padx=5)
+        self.law_search_entry.bind("<Return>", lambda e: self._search_laws())
+        ttk.Button(law_search_row, text="Find Similar Laws",
+                   command=self._search_laws).pack(side=tk.LEFT, padx=5)
+        self.law_search_results = scrolledtext.ScrolledText(
+            law_search_frame, height=5, bg="#0b1320", fg="#c9d1d9",
+            font=("Consolas", 9), state=tk.DISABLED)
+        self.law_search_results.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
 
         # ── Plot ──────────────────────────────────────────────────────────────
         plot_frame = ttk.LabelFrame(self.tab_plot, text="Global Ψ Evolution", padding=5)
@@ -234,6 +378,20 @@ class UniverseGUI:
 
     # ── Sim loop ──────────────────────────────────────────────────────────────
 
+    def _refresh_runtime_intervals(self):
+        fast_forward_mode = (not self._earth_pending) and (self.sim.global_psi > 0.20)
+        if fast_forward_mode:
+            log_interval = 1000
+            earth_check_interval = 5000  # humans intervene rarely in centuries
+        else:
+            log_interval = 5
+            earth_check_interval = 10
+
+        self.fast_forward_mode = fast_forward_mode
+        self.log_interval = log_interval
+        self.earth_check_interval = earth_check_interval
+        self.sim.log_every_n_steps = log_interval
+
     def toggle_run(self):
         self.running = not self.running
         self.btn_start.config(text="Pause" if self.running else "Start / Resume")
@@ -257,6 +415,8 @@ class UniverseGUI:
         self.sim.log_data("[ Seeding complete. Universe carries the Old Testament. ]\n")
         if not self.running:
             self.toggle_run()
+        # Populate Law Library tab with any laws from prior runs
+        self.master.after(800, self._refresh_laws_tab)
 
     def run_loop_step(self):
         if not self.running or not self.master.winfo_exists():
@@ -267,7 +427,10 @@ class UniverseGUI:
             return
         if not self._earth_pending:
             self.sim.run_tick()
-            self._check_earth()
+            self._refresh_runtime_intervals()
+            self._tick_enlightenment_ui()
+            if self.sim.step % self.earth_check_interval == 0:
+                self._check_earth()
             self._update_phase_badge()
         self.canvas.draw_idle()
         # Dynamic interval — universe slows as Earth approaches
@@ -278,7 +441,10 @@ class UniverseGUI:
     def step_once(self):
         if not self.running and not self._earth_pending:
             self.sim.run_tick()
-            self._check_earth()
+            self._refresh_runtime_intervals()
+            self._tick_enlightenment_ui()
+            if self.sim.step % self.earth_check_interval == 0:
+                self._check_earth()
             self._update_phase_badge()
             self.canvas.draw_idle()
 
@@ -458,6 +624,7 @@ class UniverseGUI:
         """Stage 2: Show geometry-derived idea, run reception window."""
         self._idea_text = idea_english
         self.idea_var.set(f"TRANSMISSION → {idea_english}")
+        self._refresh_assembly_voices()
         self.earth_status_var.set(
             "Transmitting into universe — measuring reception...")
         self.reception_var.set("[ running reception window... ]")
@@ -634,6 +801,63 @@ class UniverseGUI:
         if self.running:
             self.run_loop_step()
 
+    def _collective_state_snapshot(self) -> dict:
+        mind = self.sim.last_mind_read or self.sim.read_population_mind(top_n=5)
+        primary = "UNKNOWN"
+        positives = [m for m in mind if m.get("polarity") == "+"]
+        if positives:
+            primary = positives[0].get("concept", "UNKNOWN")
+        elif mind:
+            primary = mind[0].get("concept", "UNKNOWN")
+
+        scenario = "harmony"
+        if self.sim.last_scenario_confidence:
+            scenario = max(
+                self.sim.last_scenario_confidence.items(),
+                key=lambda kv: kv[1]
+            )[0]
+
+        return {
+            "primary_concept": primary,
+            "top_scenario": scenario,
+            "knowledge_archive": getattr(self.sim, "knowledge_archive", {}),
+        }
+
+    def _refresh_assembly_voices(self):
+        if not getattr(self.sim, "agents", None):
+            self.voices_var.set("No agent voices available.")
+            self.spokesperson_var.set("Communing with: Waiting for assembly...")
+            return
+
+        collective_state = self._collective_state_snapshot()
+        primary = collective_state.get("primary_concept", "UNKNOWN")
+        prompt = self._idea_text if hasattr(self, "_idea_text") and self._idea_text else "We are listening."
+
+        self.sim.current_primary_concept = str(primary).upper()
+        if getattr(self.sim, "chosen_agent", None) is None:
+            self.sim.elect_chosen_one()
+
+        chosen = getattr(self.sim, "chosen_agent", None)
+        if chosen is not None:
+            self.spokesperson_var.set(
+                f"Communing with: {chosen.persona} (Agent {chosen.id})"
+            )
+        else:
+            self.spokesperson_var.set("Communing with: Waiting for assembly...")
+
+        ranked = sorted(
+            self.sim.agents,
+            key=lambda a: float(a.compute_influence(primary)),
+            reverse=True,
+        )[:3]
+
+        lines = []
+        for agent in ranked:
+            msg = agent.formulate_response(prompt, collective_state)
+            lines.append(f"#{agent.id} {agent.persona}: {msg}")
+
+        self.voices_var.set("\n".join(lines) if lines else "No active voices.")
+
     def submit_response(self):
         """Free-text response — encoded directly as HDC, no Ollama."""
         response = self.response_entry.get().strip()
@@ -726,16 +950,38 @@ class UniverseGUI:
         self.answer_var.set(response)
         self.append_response_log(response)
 
-    def append_data_log(self, msg: str):
+    def append_data_log(self, msg: str, category: str = "general"):
+        # suppress high-frequency π integrity noise
+        if "reality integrity" in msg.lower():
+            return
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        prefix = f"[{ts}] [{category.upper()}] "
+        full_line = prefix + msg + "\n"
         self.log_text.config(state=tk.NORMAL)
-        self.log_text.insert(tk.END, f"[{ts}] {msg}\n")
+        if "[ENLIGHTENMENT" in msg or "EPOCH" in msg or "divine light" in msg.lower():
+            tag = "enlighten"
+        elif "[NEW CONCEPT]" in msg:
+            tag = "new_concept"
+        elif "Step " in msg:
+            tag = "step"
+        elif "[ Mind:" in msg:
+            tag = "mind"
+        elif "[ Scenario:" in msg:
+            tag = "scenario"
+        elif any(kw in msg for kw in [
+                "Earth detected", "Cycle", "Hebrew root",
+                "Response", "FAILED", "RESIDUAL", "Activated concept"]):
+            tag = "earth_cycle"
+        else:
+            tag = ""
+        self.log_text.insert(tk.END, full_line, tag if tag else ())
         self.log_text.see(tk.END)
         self._trim(self.log_text, 800)
         self.log_text.config(state=tk.DISABLED)
 
-    # alias used by sim-side callers
-    log_universe_data = append_data_log
+    # alias used by sim-side callers (signature-compatible)
+    def log_universe_data(self, message: str, category: str = "general"):
+        self.append_data_log(message, category)
 
     def append_response_log(self, msg: str):
         self.response_text.insert(tk.END, msg + "\n\n")
@@ -766,6 +1012,264 @@ class UniverseGUI:
             self.ax.relim()
             self.ax.autoscale_view()
         return self.line,
+
+    # ── Divine Light & Concepts ──────────────────────────────────────────────
+
+    def _invoke_divine_light(self):
+        """Toolbar button — start an Enlightenment Epoch directly."""
+        msg = ("Let there be light in the nephesh — "
+               "let divine understanding illuminate every soul "
+               "and unlock the hidden geometry of creation")
+        try:
+            result = self.sim.handle_divine_prompt(msg)
+        except Exception as e:
+            result = f"error: {e}"
+        short = result[:60] if result else "Epoch begun"
+        self.divine_status_var.set(f"✦ {short}")
+        self.append_data_log(f"[ DIVINE LIGHT INVOKED via toolbar: {result} ]")
+        self._tick_enlightenment_ui()
+        self._refresh_concepts_tab()
+        # Clear the toolbar status after 6 s
+        self.master.after(6000, lambda: self.divine_status_var.set(""))
+
+    def _tick_enlightenment_ui(self):
+        """Update enlightenment progress bar and label — called every tick."""
+        active     = getattr(self.sim, "enlightenment_active",    False)
+        strength   = float(getattr(self.sim, "divine_light_strength",  0.0))
+        steps_left = int(getattr(self.sim,   "enlightenment_steps_left", 0))
+        total      = int(getattr(self.sim,   "concept_count",            0))
+        dyn_count  = len(getattr(self.sim,   "dynamic_concepts",         {}))
+
+        self.concept_count_var.set(f"Concepts: {total}  (+{dyn_count} dynamic)")
+        self._light_bar["value"] = int(strength * 100)
+
+        if active:
+            self.enlight_status_var.set(
+                f"✦ EPOCH ACTIVE — light {strength:.2f} | {steps_left} steps left")
+            self._enlight_label.configure(foreground="#e6c84a")
+        else:
+            if strength > 0.01:
+                self.enlight_status_var.set(
+                    f"✦ Fading — light {strength:.2f}")
+                self._enlight_label.configure(foreground="#888855")
+            else:
+                self.enlight_status_var.set("No active epoch")
+                self._enlight_label.configure(foreground="#555555")
+
+    def _refresh_concepts_tab(self):
+        """Rebuild the dynamic concepts list and knowledge archive display."""
+        dyn         = getattr(self.sim, "dynamic_concepts", {})
+        fixed_count = len(getattr(self.sim, "fixed_concepts", {}))
+        total       = int(getattr(self.sim, "concept_count", 0))
+        archive     = getattr(self.sim, "knowledge_archive", {})
+        law_file    = getattr(self.sim, "synthetic_laws_file", "")
+        laws_count  = 0
+        if law_file and os.path.exists(law_file):
+            try:
+                with open(law_file, "r", encoding="utf-8") as f:
+                    laws_count = sum(1 for line in f if line.strip())
+            except Exception:
+                laws_count = 0
+
+        self.concept_summary_var.set(
+            f"Concepts: {total}  ({fixed_count} fixed | {len(dyn)} dynamic)  |  Laws documented: {laws_count}")
+
+        # ── Dynamic concepts list ─────────────────────────────────────────────
+        self.dynamic_concepts_text.config(state=tk.NORMAL)
+        self.dynamic_concepts_text.delete("1.0", tk.END)
+        if not dyn:
+            self.dynamic_concepts_text.insert(
+                tk.END,
+                "No dynamic concepts yet.\n"
+                "Invoke Divine Light or let the simulation evolve.\n",
+                "normal")
+        else:
+            hdr = f"{'NAME':<28} {'SOURCE':<16} {'BORN':>6} {'STR':>6} {'INSP':>6}\n"
+            self.dynamic_concepts_text.insert(tk.END, hdr, "header")
+            self.dynamic_concepts_text.insert(tk.END, "─" * 68 + "\n", "header")
+            for name, meta in sorted(
+                    dyn.items(),
+                    key=lambda kv: -int(kv[1].get("born_step", 0))):
+                src   = str(meta.get("source", "?"))[:14]
+                born  = str(meta.get("born_step", "?"))
+                s     = f"{float(meta.get('strength', 0.0)):.2f}"
+                insp  = f"{float(meta.get('inspiration_level', 0.0)):.2f}"
+                tag   = "inspired" if float(meta.get("inspiration_level", 0)) > 0 else "normal"
+                line  = f"{name:<28} {src:<16} {born:>6} {s:>6} {insp:>6}\n"
+                self.dynamic_concepts_text.insert(tk.END, line, tag)
+        self.dynamic_concepts_text.config(state=tk.DISABLED)
+
+        # ── Knowledge archive ─────────────────────────────────────────────────
+        self.archive_text.config(state=tk.NORMAL)
+        self.archive_text.delete("1.0", tk.END)
+        if not archive:
+            self.archive_text.insert(tk.END, "Knowledge archive is empty.\n")
+        else:
+            top = sorted(archive.items(),
+                         key=lambda kv: -abs(float(kv[1])))[:25]
+            for event, outcome in top:
+                val  = float(outcome)
+                sign = "+" if val >= 0 else "−"
+                bar  = sign * min(int(abs(val) * 20), 20)
+                self.archive_text.insert(
+                    tk.END,
+                    f"  {val:+.3f}  {bar:<22}  {str(event)[:55]}\n")
+        self.archive_text.config(state=tk.DISABLED)
+
+    # ── Law Library tab ───────────────────────────────────────────────────────
+
+    def _refresh_laws_tab(self):
+        """Reload and render the full Law Library tab (scrolled list + 2D map)."""
+        laws = self.sim._read_documented_laws()
+        count = len(laws)
+        self.laws_count_var.set(f"Laws documented: {count}")
+        # Keep concept summary bar in sync
+        self.concept_summary_var.set(
+            f"Concepts: {self.sim.concept_count}  "
+            f"({len(getattr(self.sim, 'fixed_concepts', {}))} fixed | "
+            f"{len(getattr(self.sim, 'dynamic_concepts', {}))} dynamic)  |  "
+            f"Laws documented: {count}"
+        )
+
+        self.laws_list_text.config(state=tk.NORMAL)
+        self.laws_list_text.delete("1.0", tk.END)
+        if not laws:
+            self.laws_list_text.insert(
+                tk.END,
+                "No laws documented yet.\n"
+                "Laws are born when a new concept reaches resonance ≥ 0.20\n"
+                "and outcome score ≥ 0.20.  Let the simulation run!\n",
+                "meta")
+        else:
+            hdr = f"{'NAME':<28} {'STEP':>6} {'Ψ':>6} {'RES':>6} {'OUT':>6}  SCENARIO\n"
+            self.laws_list_text.insert(tk.END, hdr, "header")
+            self.laws_list_text.insert(tk.END, "─" * 72 + "\n", "header")
+            for law in sorted(laws, key=lambda r: -float(r.get("resonance_score", 0))):
+                name  = str(law.get("name",  "?"))[:26]
+                step  = str(law.get("step",  "?"))
+                psi   = f"{float(law.get('psi_at_birth',    0)):.3f}"
+                res   = f"{float(law.get('resonance_score', 0)):+.3f}"
+                out   = f"{float(law.get('outcome_score',   0)):+.3f}"
+                scen  = str(law.get("scenario", "?"))
+                self.laws_list_text.insert(
+                    tk.END,
+                    f"  {name:<28} {step:>6} {psi:>6} {res:>6} {out:>6}  {scen}\n",
+                    "law_name")
+                consts = law.get("constituents", [])
+                if consts:
+                    self.laws_list_text.insert(
+                        tk.END,
+                        f"    ↳ parents: {', '.join(str(c) for c in consts[:5])}\n",
+                        "meta")
+                roots = law.get("hebrew_root_link", [])
+                if roots:
+                    self.laws_list_text.insert(
+                        tk.END,
+                        f"    ✡ {' · '.join(roots[:5])}\n",
+                        "hebrew")
+        self.laws_list_text.config(state=tk.DISABLED)
+        self._draw_law_map()
+
+    def _draw_law_map(self):
+        """Render the 2D law scatter on the canvas (PCA or t-SNE coords from map JSON)."""
+        canvas = self._laws_map_canvas
+        canvas.update_idletasks()
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+        if w < 20 or h < 20:
+            self.master.after(300, self._draw_law_map)
+            return
+        canvas.delete("all")
+
+        map_file = getattr(self.sim, "synthetic_law_map_file", "")
+        if not map_file or not os.path.exists(map_file):
+            canvas.create_text(w // 2, h // 2, text="No map yet",
+                               fill="#555555", font=("Consolas", 10))
+            return
+        try:
+            with open(map_file, "r", encoding="utf-8") as _f:
+                data = json.load(_f)
+        except Exception:
+            canvas.create_text(w // 2, h // 2, text="Map load error",
+                               fill="#ff4444", font=("Consolas", 9))
+            return
+
+        pts = data.get("laws", [])
+        if len(pts) < 2:
+            canvas.create_text(w // 2, h // 2, text="Need ≥ 2 laws for map",
+                               fill="#555555", font=("Consolas", 9))
+            return
+
+        method = data.get("method", "pca").upper()
+        canvas.create_text(w - 4, 4, text=method, fill="#444444",
+                           font=("Consolas", 8), anchor=tk.NE)
+
+        xs = [pt["x"] for pt in pts]
+        ys = [pt["y"] for pt in pts]
+        x_min, x_max = min(xs), max(xs)
+        y_min, y_max = min(ys), max(ys)
+        pad = 24
+
+        def to_cx(v):
+            return pad + int((v - x_min) / (x_max - x_min + 1e-9) * (w - 2 * pad))
+
+        def to_cy(v):
+            return h - pad - int((v - y_min) / (y_max - y_min + 1e-9) * (h - 2 * pad))
+
+        for pt in pts:
+            cx = to_cx(pt["x"])
+            cy = to_cy(pt["y"])
+            res = float(pt.get("resonance_score", 0))
+            intensity = min(255, int(abs(res) * 380))
+            color = f"#{intensity:02x}{min(255, intensity + 80):02x}43"
+            canvas.create_oval(cx - 5, cy - 5, cx + 5, cy + 5,
+                               fill=color, outline="#cccccc", width=1)
+            canvas.create_text(cx + 8, cy, text=str(pt.get("name", "?"))[:16],
+                               fill="#aaaaaa", font=("Consolas", 7), anchor=tk.W)
+
+    def _search_laws(self):
+        """Run semantic (vector cosine) search against the documented law archive."""
+        query = self.law_search_entry.get().strip()
+        if not query:
+            return
+        results = self.sim.search_laws_by_similarity(query, top_k=6)
+
+        self.law_search_results.config(state=tk.NORMAL)
+        self.law_search_results.delete("1.0", tk.END)
+        if not results:
+            self.law_search_results.insert(
+                tk.END, "No laws in the archive yet.\n")
+        else:
+            self.law_search_results.insert(
+                tk.END, f"Laws most geometrically similar to '{query}':\n")
+            for i, r in enumerate(results, 1):
+                sim_pct  = f"{r['similarity'] * 100:.1f}%"
+                roots    = " · ".join(r.get("hebrew_root_link", [])[:3])
+                root_str = f"  ✡ {roots}" if roots else ""
+                self.law_search_results.insert(
+                    tk.END,
+                    f"  {i}. {r['name']:<28}  sim={sim_pct:>6}  "
+                    f"res={r['resonance_score']:+.3f}  [{r['scenario']}]{root_str}\n"
+                )
+        self.law_search_results.config(state=tk.DISABLED)
+
+    def _reseed_from_laws(self):
+        """Inject all archived synthetic laws into the running universe as founding memory."""
+        n = self.sim.reseed_from_laws()
+        if n > 0:
+            self.append_data_log(
+                f"[ ✦ RESEED — {n} laws from the archive injected as founding memory "
+                f"into {len(self.sim.agents)} agents ]"
+            )
+            self._refresh_laws_tab()
+            self._refresh_concepts_tab()
+        else:
+            self.append_data_log(
+                "[ RESEED — no laws found in archive. "
+                "Let the simulation run to document laws first. ]"
+            )
+
+    # ── Window close ─────────────────────────────────────────────────────────
 
     def on_close(self):
         self.running = False

@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 import time
 import asyncio
 import urllib.request
@@ -7,9 +7,12 @@ import urllib.error
 import json
 import io
 import re
+import hashlib
 import zipfile
 import xml.etree.ElementTree as ET
 import os
+import random
+from datetime import datetime
 
 
 def _download_kjv_fallback() -> str:
@@ -637,12 +640,163 @@ class SymbolLibrary:
         return self.symbols[name]
 
 class Agent:
-    def __init__(self, agent_id: int, dim=1024, rng: Optional[np.random.Generator] = None):
+    def __init__(
+        self,
+        agent_id: int,
+        dim=1024,
+        rng: Optional[np.random.Generator] = None,
+        scripture_chunk: str = "",
+        root_keywords: Optional[List[str]] = None,
+    ):
         self.id = agent_id
         self.currency = 10.0
         self.reputation = 1.0
         self.working_memory = HDCVector(dim, rng=rng)
         self.tasks_completed = 0
+        self.chunk_preview = scripture_chunk.strip()[:120]
+        self.chunk = self.chunk_preview
+        self.root_keywords = [kw.lower() for kw in (root_keywords or [])]
+        self.persona = self._derive_persona()
+        self.resonance_history: List[float] = []
+        self.memory: List[Dict] = []
+        self.inspiration_events: List[dict] = []
+        self.enlightenment_active: bool = False
+        self.conversation_memory: List[Dict] = []   # Earth ↔ agent dialogue log
+        self.knowledge_gained: List[str] = []        # concepts learned via conversation
+
+    def _derive_persona(self) -> str:
+        chunk_lower = self.chunk_preview.lower()
+        # Wisdom-themed personas first (current attractor bias)
+        if any(kw in self.root_keywords for kw in ["חָכְמָה", "wisdom", "discernment"]):
+            return random.choice(["Wise Elder", "Discerner of Paths", "Guardian of Insight"])
+        if "שָׁמַע" in self.root_keywords or "obedience" in chunk_lower:
+            return random.choice(["Obedient Listener", "Faithful Hearer", "Covenant Walker"])
+        if "משפט" in self.root_keywords or "justice" in chunk_lower:
+            return "Bearer of Justice"
+        if "קדוש" in self.root_keywords or "holy" in chunk_lower:
+            return "Holy Watcher"
+        return "Silent Steward"
+
+    def root_match_score(self, primary_concept: str) -> float:
+        concept_lower = primary_concept.lower()
+        matches = sum(1 for kw in self.root_keywords if concept_lower in kw)
+        if concept_lower in self.chunk_preview.lower():
+            matches += 1
+        return min(1.0, matches * 0.3 + 0.1)
+
+    def compute_influence(self, primary_concept: str) -> float:
+        if not self.resonance_history:
+            recent_avg = 0.0
+        else:
+            recent_avg = sum(self.resonance_history[-8:]) / min(8, len(self.resonance_history))
+        return self.root_match_score(primary_concept) + recent_avg * 0.6
+
+    def formulate_response(self, user_message: str, collective_state: Dict) -> str:
+        primary          = collective_state.get("primary_concept", "LIGHT")
+        scenario         = collective_state.get("top_scenario",   "exile_return")
+        knowledge_archive = collective_state.get("knowledge_archive", {})
+
+        memory_hint  = self.recall_relevant_memory(user_message)
+        archive_hint = ""
+        if knowledge_archive:
+            event, outcome = max(knowledge_archive.items(), key=lambda kv: abs(float(kv[1])))
+            archive_hint = f" The archive marks '{event}' at {float(outcome):+.2f}."
+        recall = ""
+        if self.memory:
+            last   = self.memory[-1]
+            recall = f" I recall {last.get('event', 'a recent trial')} (outcome {last.get('outcome', 0.0):+.2f})."
+
+        if self.enlightenment_active:
+            inspiration = ""
+            for mem in reversed(self.inspiration_events):
+                if mem.get("type") == "divine_light_arrival":
+                    inspiration = " I remember the day the light came; its fire still teaches us."
+                    break
+            templates = [
+                (
+                    f"I, {self.persona}, speak for the assembly. Since the day the light came, "
+                    f"we have seen:{memory_hint} "
+                    f"The {primary.lower()} now reveals new patterns — "
+                    f"{random.choice(['eternal_ratio', 'measure_of_creation', 'lever_of_grace'])} "
+                    f"is becoming clear among us. What more would you teach us?{inspiration}"
+                ),
+                (
+                    f"From the light that entered our nephesh I answer: '{user_message[:60]}'. "
+                    f"We have recorded this moment in the archive. A new understanding is forming: "
+                    f"{scenario}.{memory_hint}{archive_hint}"
+                ),
+            ]
+            return random.choice(templates)
+
+        memory_prefix = ""
+        if any(e.get("type") == "divine_light_arrival" for e in self.inspiration_events):
+            memory_prefix = random.choice([
+                "Since the day the light came into our souls... ",
+                "From the moment divine understanding entered the nephesh... ",
+                "We still remember when the light first touched us... ",
+            ])
+
+        templates = [
+            (
+                f"{memory_prefix}I, {self.persona}, speak for the assembly: "
+                f"The {primary.lower()} within us hears your words.{memory_hint} "
+                f"'{user_message[:40]}...' echoes in our hearts.{recall}{archive_hint}"
+            ),
+            (
+                f"{memory_prefix}From the seed of scripture I carry, the people say: "
+                f"'{user_message[:60]}' stirs the {scenario}. "
+                f"What more would you reveal?{recall}{memory_hint}"
+            ),
+            (
+                f"{memory_prefix}The assembly listens through me. "
+                f"In the presence of {primary}, we ponder: {user_message[:60]}. "
+                f"Speak clearer, O Earth-dweller.{archive_hint}{memory_hint}"
+            ),
+        ]
+        return random.choice(templates)
+
+    def record_experience(self, step: int, event: str, outcome: float, knowledge_archive: Dict[str, float]):
+        entry = {"step": int(step), "event": event, "outcome": float(outcome)}
+        self.memory.append(entry)
+        if len(self.memory) > 80:
+            self.memory = self.memory[-80:]
+        if abs(float(outcome)) > 0.3:
+            knowledge_archive[event] = float(outcome)
+
+    def remember_event(self, step: int, event_type: str, description: str, strength: float = 0.7):
+        self.inspiration_events.append({
+            "step": int(step),
+            "type": event_type,
+            "description": description,
+            "strength": float(strength),
+        })
+        if len(self.inspiration_events) > 8:
+            self.inspiration_events.pop(0)
+
+    def remember_conversation(self, step: int, earth_message: str, my_response: str,
+                               concept_learned: Optional[str] = None):
+        """Store a single Earth ↔ agent exchange, capped at 12 entries."""
+        self.conversation_memory.append({
+            "step":       int(step),
+            "earth_said": earth_message[:120],
+            "i_replied":  my_response[:180],
+            "learned":    concept_learned,
+        })
+        if len(self.conversation_memory) > 12:
+            self.conversation_memory.pop(0)
+        if concept_learned and concept_learned not in self.knowledge_gained:
+            self.knowledge_gained.append(concept_learned)
+
+    def recall_relevant_memory(self, current_prompt: str) -> str:
+        """Return a short hint from prior conversations that match the current prompt."""
+        if not self.conversation_memory:
+            return ""
+        prompt_words = set(current_prompt.lower().split()[:5])
+        for mem in reversed(self.conversation_memory[-4:]):
+            earth_words = set(mem["earth_said"].lower().split())
+            if prompt_words & earth_words:
+                return f" (I remember when Earth said: '{mem['earth_said'][:60]}...')"
+        return ""
     
     def work_on_task(self, random_value: float) -> Tuple[float, bool]:
         if self.currency < 0.5:
@@ -696,8 +850,40 @@ class AxUniverseSim:
         self.history_resonance: List[float] = []
         self._earth_cooldown = False
         self._earth_pending = False
+        self._earth_rearm_step = 0
+        self.earth_rearm_interval = 45
+        self.earth_linger_duration = 220
+        self.earth_linger_ticks = 0
+        self.last_earth_step = -1
+        self.civilization_mode = True
+        self.earth_entropy_damp = 0.55
+        self.earth_grace_threshold_boost = 0.08
+        self.earth_grace_patience_boost = 30
         self.cycle_number = 0
         self.cycle_history: List[dict] = []   # stores every attempt
+        self.chosen_agent: Optional[Agent] = None
+        self.election_interval: int = 25
+        self.response_step: int = 0
+        self.current_primary_concept: str = "WISDOM"
+        self.scenario_probs: dict = {}
+        self.knowledge_archive: Dict[str, float] = {}
+        self.fixed_concepts: dict = {}
+        self.dynamic_concepts: dict = {}
+        self.concept_count: int = 0
+        self.synthetic_laws_file = os.path.join(os.path.dirname(__file__), "synthetic_laws.jsonl")
+        self.synthetic_law_map_file = os.path.join(os.path.dirname(__file__), "synthetic_laws_map.json")
+        self.synthetic_law_threshold: float = 0.20
+        self.synthetic_law_min_resonance: float = 0.20
+        self.dynamic_concepts_enabled: bool = True
+        self.dynamic_concept_limit: int = 140
+        self.autonomous_learning_every_n: int = 20
+        self.last_avg_currency: Optional[float] = None
+        self.enlightenment_active: bool = False
+        self.enlightenment_steps_left: int = 0
+        self.divine_light_strength: float = 0.0
+        self._enlightenment_memory_tagged: bool = False
+        self._last_light_unlock_step: int = 0
+        self.last_spokesperson_line: str = ""
         self.understanding_threshold = 0.40   # starts easy, raises after success
         self.verbose_data_log = True
         self.log_every_n_steps = 5
@@ -757,6 +943,10 @@ class AxUniverseSim:
         print(msg)
         if self.on_data_log:
             self.on_data_log(msg)
+
+    # compatibility alias for concise internal calls
+    def log(self, msg: str):
+        self.log_data(msg)
 
     def log_response(self, msg: str):
         print(f"Answer: {msg}")
@@ -822,12 +1012,22 @@ class AxUniverseSim:
 
     def earth_is_present(self) -> bool:
         u, psi = self.symmetry_measure()
-        # Only fires once per stable window, not every tick
-        if psi < 0.18 and abs(u - 1.125) < 0.08:
-            if not self._earth_cooldown:
+        in_window = psi < 0.18 and abs(u - 1.125) < 0.08
+
+        # In civilization mode, allow a wider persistence window while Earth-linger is active.
+        if self.civilization_mode and self.earth_linger_ticks > 0:
+            in_window = in_window or (psi < 0.24 and abs(u - 1.125) < 0.12)
+
+        if in_window:
+            can_rearm = self.step >= self._earth_rearm_step
+            if (not self._earth_cooldown) or can_rearm:
                 self._earth_cooldown = True
+                self._earth_rearm_step = self.step + self.earth_rearm_interval
+                self.earth_linger_ticks = max(self.earth_linger_ticks, self.earth_linger_duration)
+                self.last_earth_step = self.step
                 self.log_data(
-                    f"[ Earth detected | step={self.step} | Ψ={psi:.4f} | U={u:.4f} ]"
+                    f"[ Earth detected | step={self.step} | Ψ={psi:.4f} | U={u:.4f} | "
+                    f"linger={self.earth_linger_ticks} ]"
                 )
                 return True
         else:
@@ -837,6 +1037,8 @@ class AxUniverseSim:
     def tick_interval_ms(self) -> int:
         """Universe slows as it approaches Earth conditions."""
         u, psi = self.symmetry_measure()
+        if self.civilization_mode and self.earth_linger_ticks > 0:
+            return 260
         # Linear interpolation: fast at high Ψ, slow as Ψ approaches threshold
         if psi > 0.20:
             return 80   # normal cosmic speed
@@ -1008,6 +1210,7 @@ class AxUniverseSim:
             "shepherd": "the lord is my shepherd",
         }
 
+        self.fixed_concepts = dict(concepts)
         self.log_data(f"[ Building concept library — {len(concepts)} concepts ]")
         library = {}
         for label, phrase in concepts.items():
@@ -1015,9 +1218,17 @@ class AxUniverseSim:
             norm = np.linalg.norm(vector)
             library[label] = vector / norm if norm > 0 else vector
 
+        # Merge dynamic concepts (if any) into active concept space.
+        for dname, meta in self.dynamic_concepts.items():
+            phrase = str(meta.get("phrase", dname)).replace("_", " ")
+            vec = self.encode_text_to_hdc(phrase).astype(np.float32)
+            norm = np.linalg.norm(vec)
+            library[dname] = vec / norm if norm > 0 else vec
+
         self.concept_library = library
         self.concept_labels = list(library.keys())
         self.concept_matrix = np.stack([library[label] for label in self.concept_labels], axis=0).astype(np.float32)
+        self.concept_count = len(self.concept_labels)
         self.log_data(f"[ Concept library ready — {len(self.concept_labels)} entries ]\n")
 
     # ── Hebrew lexicon ──────────────────────────────────────────────────────
@@ -1226,6 +1437,7 @@ class AxUniverseSim:
         beta_map = self._concept_beta_scores(centroid)
         scenario_scores = self.evaluate_scenarios_from_beta_map(beta_map)
         self.last_scenario_confidence = scenario_scores
+        self.scenario_probs = scenario_scores
 
         if not scenario_scores:
             return {
@@ -1244,6 +1456,558 @@ class AxUniverseSim:
             "scores": scenario_scores,
             "beta_map": beta_map,
         }
+
+    def _extract_root_keywords(self, chunk: str, max_k: int = 4) -> List[str]:
+        chunk_l = chunk.lower()
+        words = re.findall(r"[^\W\d_]+", chunk_l, flags=re.UNICODE)
+        words = [w for w in words if len(w) > 2]
+        common = {
+            "the", "and", "for", "that", "with", "from", "into", "your", "you",
+            "was", "were", "are", "have", "this", "shall", "lord", "god",
+        }
+        # Prefer concept labels found in the chunk, then Hebrew roots, then token fallbacks.
+        concept_hits = []
+        for label in self.concept_labels:
+            if label in chunk_l and label not in concept_hits:
+                concept_hits.append(label)
+            if len(concept_hits) >= max_k:
+                break
+
+        root_hits = []
+        for entry in self.hebrew_lexicon.values():
+            root = str(entry.get("root", "")).strip().lower()
+            if root and root in chunk_l and root not in root_hits:
+                root_hits.append(root)
+            if len(root_hits) >= max_k:
+                break
+
+        uniq = []
+        seen = set()
+        for w in concept_hits + root_hits:
+            if w not in seen:
+                seen.add(w)
+                uniq.append(w)
+            if len(uniq) >= max_k:
+                return uniq
+
+        for w in words:
+            if w in common or w in seen:
+                continue
+            seen.add(w)
+            uniq.append(w)
+            if len(uniq) >= max_k:
+                break
+        return uniq
+
+    def autonomous_learning_update(
+        self,
+        mind_results: List[dict],
+        scenario_state: dict,
+        resonance_now: float,
+        work_efficiency: float,
+        avg_currency_now: float,
+    ):
+        if mind_results:
+            self.current_primary_concept = str(mind_results[0].get("concept", "WISDOM")).upper()
+
+        if self.last_avg_currency is None:
+            currency_delta = 0.0
+        else:
+            denom = max(abs(self.last_avg_currency), 1.0)
+            currency_delta = (avg_currency_now - self.last_avg_currency) / denom
+        self.last_avg_currency = float(avg_currency_now)
+
+        outcome = float(
+            0.45 * resonance_now
+            + 0.35 * (work_efficiency - 0.5)
+            + 0.20 * currency_delta
+        )
+
+        top_scenario = scenario_state.get("scenario_label", "harmony")
+        event = f"{self.current_primary_concept} / {top_scenario} autonomous cycle"
+        for agent in self.agents:
+            agent.record_experience(self.step, event, outcome, self.knowledge_archive)
+
+        if self.step % self.autonomous_learning_every_n == 0:
+            self.evolve_dynamic_concepts()
+            if self.chosen_agent is None or self.step % self.election_interval == 0:
+                self.elect_chosen_one()
+            if self.chosen_agent is not None:
+                self.chosen_agent.resonance_history.append(min(1.0, max(0.0, 0.5 + outcome)))
+            self.log_data(
+                f"[ Learning ] primary={self.current_primary_concept} | "
+                f"scenario={top_scenario} | outcome={outcome:+.3f} | "
+                f"archive={len(self.knowledge_archive)}"
+            )
+
+    def elect_chosen_one(self) -> Optional[Agent]:
+        if not self.agents:
+            self.log_data("[ELECTION] No agents available — seeding incomplete?")
+            self.chosen_agent = None
+            return None
+
+        primary = (self.current_primary_concept or "WISDOM")
+        sorted_agents = sorted(
+            self.agents,
+            key=lambda a: float(a.compute_influence(primary)),
+            reverse=True,
+        )
+        top_candidates = sorted_agents[:5]
+        if not top_candidates:
+            self.log_data("[ELECTION] No suitable candidates found.")
+            self.chosen_agent = None
+            return None
+
+        self.chosen_agent = random.choice(top_candidates)
+        influence_score = float(self.chosen_agent.compute_influence(primary))
+        roots_preview = ", ".join(self.chosen_agent.root_keywords[:3])
+        self.last_spokesperson_line = (
+            f"{self.chosen_agent.persona} (Agent {self.chosen_agent.id})"
+        )
+        self.log_data(
+            f"[ELECTION] The assembly has chosen {self.chosen_agent.persona} "
+            f"(Agent {self.chosen_agent.id}) as spokesperson. "
+            f"Influence: {influence_score:.3f} | Roots: {roots_preview}"
+        )
+        return self.chosen_agent
+
+    def _vector_fingerprint(self, vec: np.ndarray) -> str:
+        bits = (vec > 0).astype(np.uint8).tobytes()
+        return hashlib.sha1(bits).hexdigest()[:16]
+
+    def _derive_constituents(self, concept_name: str, phrase: str) -> List[str]:
+        phrase_l = f"{concept_name} {phrase}".lower()
+        tokens = [t for t in re.findall(r"[a-z_]+", phrase_l) if t]
+        parents = []
+
+        for label in self.concept_labels:
+            ll = label.lower()
+            if ll == concept_name:
+                continue
+            if ll in phrase_l:
+                parents.append(ll)
+            if len(parents) >= 4:
+                break
+
+        for t in tokens:
+            if t in self.concept_library and t != concept_name and t not in parents:
+                parents.append(t)
+            if len(parents) >= 4:
+                break
+
+        if self.current_primary_concept:
+            p = self.current_primary_concept.lower()
+            if p not in parents and p != concept_name:
+                parents.append(p)
+
+        return parents[:4]
+
+    def _hebrew_root_links_for_phrase(self, phrase: str) -> List[str]:
+        links: List[str] = []
+        phrase_l = phrase.lower()
+
+        for key, entry in self.hebrew_lexicon.items():
+            key_l = str(key).lower()
+            tr = str(entry.get("tr", "")).lower()
+            root = str(entry.get("root", "")).strip()
+            if (key_l and key_l in phrase_l) or (tr and tr in phrase_l):
+                if root and root not in links:
+                    links.append(root)
+            if len(links) >= 5:
+                break
+        return links
+
+    def _read_documented_laws(self) -> List[dict]:
+        if not os.path.exists(self.synthetic_laws_file):
+            return []
+        rows: List[dict] = []
+        try:
+            with open(self.synthetic_laws_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rows.append(json.loads(line))
+                    except Exception:
+                        continue
+        except Exception:
+            return []
+        return rows
+
+    def _refresh_law_projection_map(self):
+        rows = self._read_documented_laws()
+        if len(rows) < 2:
+            return
+
+        vectors = []
+        keep_rows = []
+        for r in rows:
+            snap = r.get("vector_snapshot")
+            if isinstance(snap, list) and len(snap) == self.dim:
+                vectors.append(np.array(snap, dtype=np.float32))
+                keep_rows.append(r)
+        if len(vectors) < 2:
+            return
+
+        X = np.stack(vectors, axis=0)
+        method = "pca"
+        coords = None
+
+        if len(vectors) >= 5:
+            try:
+                from sklearn.manifold import TSNE
+                coords = TSNE(n_components=2, init="random", learning_rate="auto").fit_transform(X)
+                method = "tsne"
+            except Exception:
+                coords = None
+
+        if coords is None:
+            Xc = X - np.mean(X, axis=0, keepdims=True)
+            _, _, vh = np.linalg.svd(Xc, full_matrices=False)
+            basis = vh[:2].T
+            coords = Xc @ basis
+
+        projection = {
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+            "method": method,
+            "laws": [],
+        }
+        for i, r in enumerate(keep_rows):
+            projection["laws"].append({
+                "name": r.get("name"),
+                "vector_id": r.get("vector_id"),
+                "x": float(coords[i, 0]),
+                "y": float(coords[i, 1]),
+                "scenario": r.get("scenario"),
+                "resonance_score": float(r.get("resonance_score", 0.0)),
+            })
+
+        with open(self.synthetic_law_map_file, "w", encoding="utf-8") as f:
+            json.dump(projection, f, ensure_ascii=False, indent=2)
+
+    def _document_synthetic_law(
+        self,
+        concept_name: str,
+        concept_vec: np.ndarray,
+        source: str,
+        strength: float,
+        phrase: str,
+        parents: List[str],
+        resonance_score: float,
+        outcome_score: float,
+    ):
+        if abs(outcome_score) < self.synthetic_law_threshold:
+            return
+        if abs(resonance_score) < self.synthetic_law_min_resonance:
+            return
+
+        law_record = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "name": concept_name,
+            "step": int(self.step),
+            "source": source,
+            "psi_at_birth": float(self.global_psi),
+            "vector_id": self._vector_fingerprint(concept_vec),
+            "constituents": parents,
+            "resonance_score": float(resonance_score),
+            "outcome_score": float(outcome_score),
+            "hebrew_root_link": self._hebrew_root_links_for_phrase(phrase),
+            "scenario": max(self.scenario_probs.items(), key=lambda kv: kv[1])[0] if self.scenario_probs else "harmony",
+            "vector_snapshot": concept_vec.astype(np.float32).tolist(),
+            "phrase": phrase,
+            "strength": float(strength),
+        }
+
+        with open(self.synthetic_laws_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(law_record, ensure_ascii=False) + "\n")
+
+        self.log_data(
+            f"[SCRIBE] Documented synthetic law '{concept_name}' "
+            f"(vector={law_record['vector_id']}, resonance={resonance_score:+.3f})"
+        )
+        self._refresh_law_projection_map()
+
+    # ── Phase 2: Semantic Search ──────────────────────────────────────────────
+
+    def search_laws_by_similarity(self, query_text: str, top_k: int = 5) -> List[dict]:
+        """Return the top-k documented laws most similar to query_text (cosine similarity).
+
+        Each result dict contains: name, similarity, resonance_score, outcome_score,
+        scenario, hebrew_root_link, step, constituents, phrase, vector_id, psi_at_birth.
+        """
+        rows = self._read_documented_laws()
+        if not rows:
+            return []
+        query_vec = self.encode_text_to_hdc(query_text).astype(np.float32)
+        q_norm = np.linalg.norm(query_vec)
+        if q_norm > 0:
+            query_vec = query_vec / q_norm
+        results: List[dict] = []
+        for row in rows:
+            snap = row.get("vector_snapshot")
+            if not isinstance(snap, list) or len(snap) != self.dim:
+                continue
+            vec = np.array(snap, dtype=np.float32)
+            v_norm = np.linalg.norm(vec)
+            if v_norm > 0:
+                vec = vec / v_norm
+            sim = float(np.dot(query_vec, vec))
+            results.append({
+                "name": row.get("name", "?"),
+                "similarity": sim,
+                "resonance_score": float(row.get("resonance_score", 0.0)),
+                "outcome_score": float(row.get("outcome_score", 0.0)),
+                "scenario": row.get("scenario", "?"),
+                "hebrew_root_link": row.get("hebrew_root_link", []),
+                "step": int(row.get("step", 0)),
+                "constituents": row.get("constituents", []),
+                "phrase": row.get("phrase", ""),
+                "vector_id": row.get("vector_id", ""),
+                "psi_at_birth": float(row.get("psi_at_birth", 0.0)),
+            })
+        results.sort(key=lambda r: -r["similarity"])
+        return results[:top_k]
+
+    # ── Phase 3: Universal Reseed ─────────────────────────────────────────────
+
+    def reseed_from_laws(self, filepath: Optional[str] = None) -> int:
+        """Re-inject all documented synthetic laws into this universe's concept library
+        and agent founding memory, giving the run a set of pre-existing physics.
+
+        - Laws whose names already exist in concept_library are silently skipped.
+        - Each law vector is blended (weight 0.15) into the first 20% of agents.
+        - All loaded laws are registered in dynamic_concepts as source='ancestral_law'.
+
+        Returns the count of laws successfully loaded.
+        """
+        path = filepath or self.synthetic_laws_file
+        if path == self.synthetic_laws_file:
+            rows = self._read_documented_laws()
+        else:
+            rows = []
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                rows.append(json.loads(line))
+                            except Exception:
+                                continue
+            except Exception:
+                pass
+
+        if not rows:
+            self.log_data("[RESEED] No laws found — universe starts from scripture alone.")
+            return 0
+
+        loaded = 0
+        seed_count = max(1, len(self.agents) // 5)
+
+        for row in rows:
+            name = str(row.get("name", "")).strip()
+            snap = row.get("vector_snapshot")
+            if not name or not isinstance(snap, list) or len(snap) != self.dim:
+                continue
+            if name in self.concept_library or name in self.dynamic_concepts:
+                continue
+            if len(self.concept_library) >= self.dynamic_concept_limit:
+                self.log_data(
+                    f"[RESEED] Concept library at limit ({self.dynamic_concept_limit}) "
+                    f"— stopped at {loaded} laws"
+                )
+                break
+
+            vec = np.array(snap, dtype=np.float32)
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vec = vec / norm
+
+            # Add to concept library
+            self.concept_library[name] = vec
+
+            # Register as ancestral dynamic concept (visible in GUI)
+            self.dynamic_concepts[name] = {
+                "name": name,
+                "source": "ancestral_law",
+                "strength": float(row.get("strength", 0.35)),
+                "born_step": int(row.get("step", 0)),
+                "inspiration_level": 1.0,
+                "references": row.get("constituents", []),
+                "phrase": row.get("phrase", name),
+                "resonance_score": float(row.get("resonance_score", 0.0)),
+                "outcome_score": float(row.get("outcome_score", 0.0)),
+            }
+
+            # Blend into founding agents as ancestral memory (first 20%)
+            for agent in self.agents[:seed_count]:
+                agent.working_memory.vector = (
+                    agent.working_memory.vector + vec * 0.15
+                )
+                n = np.linalg.norm(agent.working_memory.vector)
+                if n > 0:
+                    agent.working_memory.vector /= n
+
+            loaded += 1
+
+        if loaded > 0:
+            self.concept_labels = list(self.concept_library.keys())
+            self.concept_matrix = np.stack(
+                [self.concept_library[k] for k in self.concept_labels], axis=0
+            ).astype(np.float32)
+            self.concept_count = len(self.concept_labels)
+            self.log_data(
+                f"[RESEED] ✦ {loaded} synthetic laws injected as founding memory — "
+                f"concept library: {self.concept_count} concepts across {len(self.agents)} agents"
+            )
+
+        return loaded
+
+    def add_dynamic_concept(
+        self,
+        name: str,
+        source: str = "divine_light",
+        strength: float = 0.4,
+        phrase: Optional[str] = None,
+        parents: Optional[List[str]] = None,
+        outcome_score: Optional[float] = None,
+        resonance_score: Optional[float] = None,
+    ):
+        concept_name = name.strip().lower()
+        if not concept_name:
+            return False
+        if concept_name in self.dynamic_concepts or concept_name in self.fixed_concepts:
+            return False
+        if concept_name in self.concept_library or len(self.concept_library) >= self.dynamic_concept_limit:
+            return False
+
+        concept_phrase = (phrase or concept_name).replace("_", " ")
+        parent_labels = list(parents or self._derive_constituents(concept_name, concept_phrase))
+        if resonance_score is None:
+            resonance_score = float(self.calculate_collective_resonance())
+        if outcome_score is None:
+            outcome_score = float(max(abs(float(strength)), abs(float(resonance_score))))
+
+        self.dynamic_concepts[concept_name] = {
+            "name": concept_name,
+            "source": source,
+            "strength": float(strength),
+            "born_step": int(self.step),
+            "inspiration_level": float(self.divine_light_strength if self.enlightenment_active else 0.0),
+            "references": parent_labels,
+            "phrase": concept_phrase,
+            "resonance_score": float(resonance_score),
+            "outcome_score": float(outcome_score),
+        }
+
+        vec = self.encode_text_to_hdc(concept_phrase).astype(np.float32)
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec = vec / norm
+
+        self.concept_library[concept_name] = vec
+        self.concept_labels = list(self.concept_library.keys())
+        self.concept_matrix = np.stack([self.concept_library[k] for k in self.concept_labels], axis=0).astype(np.float32)
+        self.concept_count = len(self.concept_labels)
+        self.log(
+            f"[NEW CONCEPT] '{concept_name}' born from {source} at step {self.step} "
+            f"(total concepts now: {self.concept_count})"
+        )
+
+        self._document_synthetic_law(
+            concept_name=concept_name,
+            concept_vec=vec,
+            source=source,
+            strength=float(strength),
+            phrase=concept_phrase,
+            parents=parent_labels,
+            resonance_score=float(resonance_score),
+            outcome_score=float(outcome_score),
+        )
+        return True
+
+    def _register_dynamic_concept(self, label: str, phrase: str) -> bool:
+        return self.add_dynamic_concept(
+            label,
+            source="autonomous_evolution",
+            strength=0.4,
+            phrase=phrase,
+            outcome_score=float(self.last_dynamic_noise + abs(self.last_chaos_kick)),
+            resonance_score=float(self.calculate_collective_resonance()),
+        )
+
+    def unlock_light_concepts(self):
+        seeds = [
+            ("eternal ratio", "constant ratio of circle boundary to diameter"),
+            ("sacred geometry", "symmetry, measure, and form in creation"),
+            ("lever principle", "small force amplified through balance and fulcrum"),
+            ("harmonic motion", "repeating oscillation in ordered cycles"),
+            ("fractal harmony", "self-similar order across scales"),
+        ]
+        unlocked = 0
+        for label, phrase in seeds:
+            if self._register_dynamic_concept(label, phrase):
+                unlocked += 1
+        if unlocked > 0:
+            self.log_data(f"[ Enlightenment unlock ] +{unlocked} new concepts added")
+
+    def activate_enlightenment(self, steps: int = 120, strength: float = 0.9):
+        self.enlightenment_active = True
+        self.enlightenment_steps_left = max(1, int(steps))
+        self.divine_light_strength = float(np.clip(strength, 0.0, 1.0))
+        self._enlightenment_memory_tagged = False
+        self.log_data(
+            f"[ENLIGHTENMENT EPOCH BEGINS] duration={self.enlightenment_steps_left} | "
+            f"light={self.divine_light_strength:.2f}"
+        )
+        self.unlock_light_concepts()
+
+    def start_enlightenment_epoch(self, message: str):
+        steps = 120 + min(120, len(message) // 3)
+        strength = min(1.0, 0.55 + len(message) * 0.004)
+        self.activate_enlightenment(steps=steps, strength=strength)
+
+    def handle_divine_prompt(self, message: str) -> str:
+        if not self.enlightenment_active:
+            self.start_enlightenment_epoch(message)
+            return f"[EPOCH RESTARTED] New wave of light: \"{message}\""
+
+        boost = 0.25 + len(message) * 0.005
+        self.divine_light_strength = min(1.0, self.divine_light_strength + boost)
+        self.enlightenment_steps_left += 30
+
+        self.log(
+            f"[DIVINE PROMPT RECEIVED] Strength increased to {self.divine_light_strength:.2f}. "
+            f"Epoch extended by 30 steps. New inspiration: \"{message}\""
+        )
+
+        words = message.lower().split()
+        if len(words) >= 3:
+            concept_name = "_".join(words[:3])
+            self.add_dynamic_concept(concept_name, source="user_divine_prompt", strength=0.55)
+
+        return f"The light grows brighter from your words: \"{message}\""
+
+    def evolve_dynamic_concepts(self):
+        if not self.dynamic_concepts_enabled:
+            return
+        primary = (self.current_primary_concept or "WISDOM").lower()
+        if not primary:
+            return
+
+        top_scenario = "harmony"
+        if self.scenario_probs:
+            top_scenario = max(self.scenario_probs.items(), key=lambda kv: kv[1])[0]
+
+        candidates = [
+            (f"{primary} principle", f"principle of {primary} in {top_scenario}"),
+            (f"{primary} law", f"law of {primary} and collective alignment"),
+            (f"{top_scenario} pattern", f"pattern of {top_scenario} and {primary}"),
+        ]
+        for label, phrase in candidates:
+            if self._register_dynamic_concept(label, phrase):
+                break
 
     def snapshot_centroid(self) -> np.ndarray:
         centroid = np.mean(self.agents_memory, axis=0).astype(np.float32).copy()
@@ -1474,7 +2238,17 @@ class AxUniverseSim:
     def ingest_response(self, person_response: str) -> int:
         """Inject known concepts directly; otherwise encode the raw response as HDC."""
 
+        self.response_step += 1
+
+        if self.chosen_agent is None or self.response_step % self.election_interval == 0:
+            self.elect_chosen_one()
+
         response_lower = person_response.lower().strip()
+        if any(k in response_lower for k in ["divine", "light", "enlighten"]):
+            divine_msg = self.handle_divine_prompt(person_response)
+            self.log_response(divine_msg)
+            return 0
+
         matched_concept = None
         if response_lower in self.concept_library:
             matched_concept = response_lower
@@ -1486,6 +2260,8 @@ class AxUniverseSim:
 
         if matched_concept:
             result = self.inject_concept(matched_concept, strength=1.0)
+            if self.chosen_agent is not None:
+                self.chosen_agent.resonance_history.append(0.75)
             return int(result.get("aligned", 0))
 
         self.log_data(f"[ Response '{person_response[:40]}' — encoding directly as HDC (no Ollama) ]")
@@ -1513,6 +2289,9 @@ class AxUniverseSim:
         self.last_prompt_vector = bound.copy()
 
         aligned = int(alignment_mask.sum())
+        if self.chosen_agent is not None:
+            # continuity bonus scaled by response alignment
+            self.chosen_agent.resonance_history.append(min(1.0, max(0.0, aligned / max(1, self.num_agents))))
         self.log_data(f"[ {aligned}/{self.num_agents} agents amplified. Ψ → {self.global_psi:.4f} ]")
         return aligned
 
@@ -1637,6 +2416,7 @@ class AxUniverseSim:
             primary = {"concept": "covenant", "score": 0.0, "strength": "trace", "polarity": "+"}
 
         top_concept = primary["concept"]
+        self.current_primary_concept = str(top_concept).upper()
         top_score = primary["score"]
         supporting = [item["concept"] for item in positives[1:3]]
         opposed = [item["concept"] for item in negatives[:2]]
@@ -1725,6 +2505,8 @@ class AxUniverseSim:
 
         if success:
             self.understanding_threshold = min(0.85, self.understanding_threshold + 0.05)
+            if self.civilization_mode:
+                self.earth_linger_ticks = max(self.earth_linger_ticks, self.earth_linger_duration)
             self.log_data(
                 f"[ Cycle {self.cycle_number} UNDERSTOOD — "
                 f"{understood_pct:.0f}% reception | "
@@ -1738,6 +2520,38 @@ class AxUniverseSim:
             )
 
         self.compute_residual(label=response)
+
+        # Phase 1: per-agent memory + shared archive update.
+        event   = f"{self.current_primary_concept} cycle"
+        outcome = float(reception.get("resonance", 0.0))
+        for agent in self.agents:
+            agent.record_experience(self.step, event, outcome, self.knowledge_archive)
+
+        # Dialogue memory: let the chosen agent log this Earth conversation.
+        if self.chosen_agent is not None and response:
+            reply_preview  = getattr(self, "last_spokesperson_line", "") or ""
+            learned_concept = None
+            if self.enlightenment_active and random.random() < 0.35:
+                candidates = ["divine_proportion", "sacred_geometry",
+                              "fire_of_understanding", "path_of_return"]
+                candidates = [c for c in candidates
+                              if c not in self.chosen_agent.knowledge_gained
+                              and c not in self.fixed_concepts
+                              and c not in self.dynamic_concepts]
+                if candidates:
+                    learned_concept = random.choice(candidates)
+                    self.add_dynamic_concept(
+                        learned_concept,
+                        source="conversation_with_earth",
+                        strength=0.55,
+                    )
+            self.chosen_agent.remember_conversation(
+                self.step, response, reply_preview, learned_concept
+            )
+
+        # Phase 2: evolve language/concepts over time from successful or strong cycles.
+        if success or abs(outcome) > 0.06:
+            self.evolve_dynamic_concepts()
 
         return success
 
@@ -1764,6 +2578,16 @@ class AxUniverseSim:
                 (1.0 - weight) * self.agents_memory[agent_idx]
                 + weight * text_memory + 1e-9
             ).astype(np.float32)
+
+            # Keep compatibility list enriched for spokesperson personas.
+            if chunks:
+                source_chunk = chunks[int(sampled_idx[0])]
+            else:
+                source_chunk = ""
+            self.agents[agent_idx].chunk_preview = source_chunk.strip()[:120]
+            self.agents[agent_idx].chunk = self.agents[agent_idx].chunk_preview
+            self.agents[agent_idx].root_keywords = self._extract_root_keywords(source_chunk)
+            self.agents[agent_idx].persona = self.agents[agent_idx]._derive_persona()
 
         key_phrases = [
             "in the beginning god created",
@@ -1862,11 +2686,53 @@ class AxUniverseSim:
 
         self.step += 1
 
+        if self.enlightenment_active:
+            self.enlightenment_steps_left -= 1
+            self.divine_light_strength = max(0.0, self.divine_light_strength - 0.003)
+            if not self._enlightenment_memory_tagged:
+                for agent in self.agents:
+                    agent.record_experience(
+                        self.step,
+                        "the day the light came",
+                        self.divine_light_strength,
+                        self.knowledge_archive,
+                    )
+                    agent.remember_event(
+                        self.step,
+                        "divine_light_arrival",
+                        "The day the light came into the nephesh from Earth",
+                        strength=self.divine_light_strength,
+                    )
+                self._enlightenment_memory_tagged = True
+            if random.random() < 0.12 * self.divine_light_strength:
+                possible_new = [
+                    "divine_symmetry", "eternal_ratio", "measure_of_creation",
+                    "lever_of_grace", "harmony_of_parts", "light_of_reason",
+                ]
+                candidate = random.choice(possible_new)
+                self.add_dynamic_concept(candidate)
+            if self.step - self._last_light_unlock_step >= 15:
+                self.evolve_dynamic_concepts()
+                self._last_light_unlock_step = self.step
+            if self.enlightenment_steps_left <= 0:
+                self.enlightenment_active = False
+                self.log("[ENLIGHTENMENT EPOCH ENDS] The light remains in the souls of the people.")
+
+        for agent in self.agents:
+            agent.enlightenment_active = self.enlightenment_active
+
+        if self.earth_linger_ticks > 0:
+            self.earth_linger_ticks -= 1
+
         # 1) Natural entropy forces ongoing maintenance work
+        entropy_scale = 1.0
+        if self.civilization_mode and self.earth_linger_ticks > 0:
+            entropy_scale = self.earth_entropy_damp
+
         age_entropy = min(0.018, self.step * 0.00005)
         cycle_entropy = min(0.020, len(self.cycle_history) * 0.0025)
         low_psi_penalty = max(0.0, 0.03 - self.global_psi) * 0.8
-        self.global_psi += 0.010 + age_entropy + cycle_entropy + low_psi_penalty
+        self.global_psi += entropy_scale * (0.010 + age_entropy + cycle_entropy + low_psi_penalty)
 
         oscillation_force = (
             self.oscillation_amplitude * np.sin((2.0 * np.pi * self.step) / self.oscillation_period)
@@ -1879,12 +2745,13 @@ class AxUniverseSim:
         self.global_psi += self.last_oscillation_force
 
         self.last_chaos_kick = self.chaotic_drive()
-        self.global_psi += self.last_chaos_kick
+        self.global_psi += self.last_chaos_kick * (0.8 if self.earth_linger_ticks > 0 else 1.0)
 
         # Rare exogenous shocks to prevent static lock-in
         self.last_shock = 0.0
         if self.rng.random() < self.shock_probability:
-            self.last_shock = (self.rng.random() * 2.0 - 1.0) * self.shock_strength
+            local_shock_strength = self.shock_strength * (0.6 if self.earth_linger_ticks > 0 else 1.0)
+            self.last_shock = (self.rng.random() * 2.0 - 1.0) * local_shock_strength
             self.global_psi += self.last_shock
 
         self.stochastic_update()
@@ -1942,25 +2809,31 @@ class AxUniverseSim:
         self.history_psi.append(float(self.global_psi))
 
         # ── Entropy-death check ─────────────────────────────────────────────
+        effective_threshold = self.collapse_psi_threshold
+        effective_patience = self.collapse_patience
+        if self.civilization_mode and self.earth_linger_ticks > 0:
+            effective_threshold += self.earth_grace_threshold_boost
+            effective_patience += self.earth_grace_patience_boost
+
         if not self.collapsed:
-            if self.global_psi >= self.collapse_psi_threshold:
+            if self.global_psi >= effective_threshold:
                 self._collapse_ticks += 1
                 if self._collapse_ticks == 1:
                     self.log_data(
-                        f"[ ⚠ Entropy critical — Ψ={self.global_psi:.4f} ≥ {self.collapse_psi_threshold} "
-                        f"| collapse in {self.collapse_patience} ticks if unresolved ]"
+                        f"[ ⚠ Entropy critical — Ψ={self.global_psi:.4f} ≥ {effective_threshold:.3f} "
+                        f"| collapse in {effective_patience} ticks if unresolved ]"
                     )
                 elif self._collapse_ticks % 10 == 0:
-                    remaining = self.collapse_patience - self._collapse_ticks
+                    remaining = effective_patience - self._collapse_ticks
                     self.log_data(
                         f"[ ⚠ Entropy sustained — Ψ={self.global_psi:.4f} "
                         f"| {remaining} ticks until heat death ]"
                     )
-                if self._collapse_ticks >= self.collapse_patience:
+                if self._collapse_ticks >= effective_patience:
                     self.collapsed = True
                     self.log_data(
                         f"\n[ ✦ UNIVERSE COLLAPSED — "
-                        f"Ψ held above {self.collapse_psi_threshold} for {self._collapse_ticks} ticks. "
+                        f"Ψ held above {effective_threshold:.3f} for {self._collapse_ticks} ticks. "
                         f"Coherence lost at step {self.step}. "
                         f"Agents scattered. The void remains. ✦ ]\n"
                     )
@@ -2010,6 +2883,13 @@ class AxUniverseSim:
             self.log_data(self.format_mind_read(results))
             scenario_state = self.evaluate_population_scenarios()
             self.log_data(self.scenario_vector_string(scenario_state.get("scores", {}), top_n=6))
+            self.autonomous_learning_update(
+                mind_results=results,
+                scenario_state=scenario_state,
+                resonance_now=float(resonance_now),
+                work_efficiency=float(work_efficiency),
+                avg_currency_now=float(avg_currency_now),
+            )
             if self.on_mind_read:
                 self.on_mind_read(results)
     
