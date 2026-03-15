@@ -52,6 +52,9 @@ class UniverseGUI:
         self.btn_divine = ttk.Button(ctrl_frame, text="✦ Divine Light",
                                      command=self._invoke_divine_light)
         self.btn_divine.pack(side=tk.LEFT, padx=4)
+        self.btn_science = ttk.Button(ctrl_frame, text="🔬 Teach Scientific Method",
+                          command=self._teach_scientific_method)
+        self.btn_science.pack(side=tk.LEFT, padx=4)
         self.divine_status_var = tk.StringVar(value="")
         ttk.Label(ctrl_frame, textvariable=self.divine_status_var,
                   foreground="#e6c84a", font=("Consolas", 9)).pack(side=tk.LEFT, padx=(4, 0))
@@ -1030,6 +1033,30 @@ class UniverseGUI:
         self._tick_enlightenment_ui()
         self._refresh_concepts_tab()
         # Clear the toolbar status after 6 s
+        self.master.after(6000, lambda: self.divine_status_var.set(""))
+
+    def _teach_scientific_method(self):
+        """Toolbar button — seed scientific-method reasoning into the population."""
+        try:
+            result = self.sim.teach_scientific_method()
+            added = result.get("added_concepts", []) if isinstance(result, dict) else []
+            resonance = float(result.get("resonance_after", 0.0)) if isinstance(result, dict) else 0.0
+            self.divine_status_var.set(f"🔬 Science lesson: +{len(added)} concepts")
+            self.append_data_log(
+                "[ SCIENCE LESSON delivered — "
+                f"added={len(added)} concepts | resonance={resonance:+.3f} ]"
+            )
+            if added:
+                self.append_response_log(
+                    "Scientific-method concepts integrated:\n"
+                    + " • " + "\n • ".join(added)
+                )
+        except Exception as e:
+            self.append_data_log(f"[ SCIENCE LESSON failed: {e} ]")
+
+        self._refresh_concepts_tab()
+        self._refresh_laws_tab()
+        self._tick_enlightenment_ui()
         self.master.after(6000, lambda: self.divine_status_var.set(""))
 
     def _tick_enlightenment_ui(self):

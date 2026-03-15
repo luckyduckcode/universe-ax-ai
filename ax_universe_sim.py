@@ -1937,6 +1937,62 @@ class AxUniverseSim:
             resonance_score=float(self.calculate_collective_resonance()),
         )
 
+    def teach_scientific_method(self) -> dict:
+        """Seed a science curriculum and add scientific-method concepts.
+
+        Returns a summary dict with keys:
+          - seeded_weight
+          - added_concepts
+          - resonance_after
+        """
+        curriculum = (
+            "observe reality carefully, ask clear questions, form a testable hypothesis, "
+            "run controlled experiments, measure outcomes, analyze results, replicate findings, "
+            "revise models, and publish transparent evidence. "
+        ) * 18
+
+        self.seed_from_text(curriculum, weight=0.22)
+
+        lesson_concepts = {
+            "scientific method": "observation hypothesis experiment analysis conclusion replication",
+            "observation": "observe measurable patterns in nature",
+            "hypothesis": "propose a testable explanation",
+            "experiment": "test ideas through controlled experiments",
+            "measurement": "measure variables with precision",
+            "analysis": "analyze data and compare outcomes",
+            "reproducibility": "repeat experiments and verify results",
+            "falsifiability": "reject ideas that fail rigorous tests",
+        }
+
+        added = []
+        resonance = float(self.calculate_collective_resonance())
+        outcome = float(max(0.28, abs(resonance) + 0.16))
+        for label, phrase in lesson_concepts.items():
+            ok = self.add_dynamic_concept(
+                label,
+                source="scientific_method_curriculum",
+                strength=0.46,
+                phrase=phrase,
+                parents=["knowledge", "understanding", "discernment", "truth"],
+                outcome_score=outcome,
+                resonance_score=max(0.22, abs(resonance)),
+            )
+            if ok:
+                added.append(label)
+
+        self.new_prompt = (
+            "apply the scientific method: observe, hypothesize, test, analyze, replicate"
+        )
+        self.log_data(
+            f"[TEACHING] Scientific method curriculum delivered — "
+            f"{len(added)} concepts integrated"
+        )
+        return {
+            "seeded_weight": 0.22,
+            "added_concepts": added,
+            "resonance_after": float(self.calculate_collective_resonance()),
+        }
+
     def unlock_light_concepts(self):
         seeds = [
             ("eternal ratio", "constant ratio of circle boundary to diameter"),
