@@ -54,6 +54,8 @@ def decode_law_origin(
 
 def build_lexicon_vectors(sim: AxUniverseSim) -> Dict[str, np.ndarray]:
     """Encode Hebrew roots into HDC vectors for probing."""
+    if not getattr(sim, "hebrew_lexicon", None):
+        sim.load_hebrew_dictionary()
     vectors: Dict[str, np.ndarray] = {}
     for _, entry in sim.hebrew_lexicon.items():
         root = str(entry.get("root", "")).strip()
